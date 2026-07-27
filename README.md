@@ -1,72 +1,72 @@
-# 喵喵RVC 🐱🎤
+# MeowRVC (喵喵RVC)
 
-[English](#english) | [中文](#中文)
-
-<a name="中文"></a>
-
-# 喵喵RVC
-
-基于 RVC（Retrieval-based Voice Conversion）的 Android 实时变声应用。使用 ONNX Runtime 在手机上直接运行 AI 变声模型。
-
-## 特性
-
-- **AI 实时变声** — 本地推理，无需联网
-- **ONNX Runtime 加速** — 支持 NNAPI/NPU/GPU
-- **延时可调** — 0.5~5 秒，低延迟或高质量
-- **QQ 语音替换** — 处理后的音频可导出为 SLK 格式并自动替换 QQ 语音
-- **内置 SILK 编码器** — 无需额外工具
-
-## 构建
-
-```bash
-git clone https://github.com/你的用户名/喵喵RVC.git
-cd 喵喵RVC
-./gradlew :app:assembleDebug
-```
-
-需要 Android SDK 35 + NDK 27
-
-## 模型
-
-将 PC 转换好的 `.onnx` 文件夹放到 `/sdcard/models/` 下，App 自动扫描。
-
-转换工具：`python convert_rvc.py --rvc_root RVC-Project --synthesizer model.pth --output_dir output`
-
----
-
-<a name="english"></a>
-
-# MeowRVC
-
-Real-time voice conversion app for Android based on RVC (Retrieval-based Voice Conversion). Runs AI voice conversion models locally using ONNX Runtime.
+AI real-time voice conversion app for Android. Runs RVC (Retrieval-based Voice Conversion) models locally using ONNX Runtime.
 
 ## Features
 
-- **Real-time AI voice conversion** — Local inference, no network needed
-- **ONNX Runtime acceleration** — Supports NNAPI/NPU/GPU
-- **Adjustable latency** — 0.5~5s, low latency or high quality
-- **QQ voice replacement** — Export processed audio as SLK and auto-replace QQ voice messages
-- **Built-in SILK encoder** — No extra tools needed
+- **Real-time voice conversion** - Select a model, speak into the mic, hear the converted voice instantly
+- **Floating mic overlay** - Record audio from any app, process through AI, auto-playback through speaker for other apps to capture
+- **Auto-detect microphone usage** - When WeChat/QQ starts recording, automatically plays the latest processed audio through the speaker at max volume (acoustic coupling)
+- **Adjustable latency** - 0.5~5 seconds, lower for real-time, higher for better quality
+- **Pitch shift** - +/- 15 semitones
+- **ONNX Runtime acceleration** - Supports NNAPI/NPU/GPU
+
+## How It Works
+
+```
+1. Select model -> Start floating mic overlay
+2. Tap overlay to record -> Stop -> RVC processes -> saves to /sdcard/rvc/
+3. Open WeChat/QQ -> Send voice message
+4. App detects mic is busy -> Auto-plays latest processed audio through speaker at max volume
+5. WeChat's mic picks up the speaker output -> Friend hears the converted voice
+```
+
+## Requirements
+
+- Android 8.0+ (API 26+)
+- Root (Magisk) for `setCommunicationDevice` / speaker routing
+- ~4GB free RAM for model inference
+- RVC model files (`.onnx`) in `/sdcard/models/`
 
 ## Build
 
 ```bash
-git clone https://github.com/yourusername/MeowRVC.git
+git clone https://github.com/xiaoxiaoyu-miao/MeowRVC.git
 cd MeowRVC
 ./gradlew :app:assembleDebug
 ```
 
-Requires Android SDK 35 + NDK 27
+Requires: Android SDK 35, NDK 27, JDK 17
 
-## Models
+The `onnxruntime.jar` and `.so` files are not included in the repository (`.gitignore`). Download them from Maven Central or GitHub Releases:
 
-Place `.onnx` model folders under `/sdcard/models/`. The app will scan automatically.
+- `onnxruntime-android-1.18.0.aar` → extract `classes.jar` to `voicechanger/libs/onnxruntime.jar`
+- Extract `jni/arm64-v8a/libonnxruntime*.so` to `voicechanger/src/main/jniLibs/arm64-v8a/`
 
-Conversion tool: `python convert_rvc.py --rvc_root RVC-Project --synthesizer model.pth --output_dir output`
+## Model Files
+
+Place your RVC ONNX model folder under `/sdcard/models/`. The app scans for:
+
+- `hubert.onnx` - ContentVec/HuBERT feature extractor (v2, 768-dim)
+- `text_encoder.onnx` - Synthesizer text encoder
+- `flow.onnx` - Normalizing flow (reverse)
+- `generator.onnx` - HiFi-GAN NSF generator
+- `config.json` - Model metadata
+
+Convert your `.pth` RVC model on PC:
+
+```bash
+python convert_rvc.py --rvc_root RVC-Project --synthesizer model.pth --output_dir output
+```
 
 ## Tech Stack
 
-- **ONNX Runtime** — Model inference
-- **SILK Codec** — QQ voice format encoding
-- **Android AudioRecord/AudioTrack** — Audio capture and playback
-- **Material 3** — UI design
+- **ONNX Runtime** - Model inference
+- **Android AudioRecord/AudioTrack** - Audio capture and playback
+- **AudioManager.AudioRecordingCallback** - Microphone usage detection
+- **setCommunicationDevice** - Speaker routing (Android 14+)
+- **Material 3** - UI
+
+## License
+
+MIT
