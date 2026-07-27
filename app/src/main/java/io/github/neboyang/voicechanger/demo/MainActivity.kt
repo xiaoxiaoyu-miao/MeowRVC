@@ -125,38 +125,78 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btnExportSlk).setOnClickListener {
             val input = android.widget.EditText(this).apply { hint = "输入 QQ 号码"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
             AlertDialog.Builder(this)
-                .setTitle("导出并替换 QQ 语音")
+                .setTitle("导出到 QQ 语音")
                 .setMessage("确保已在 QQ 发了一条语音消息")
                 .setView(input)
-                .setPositiveButton("导出并替换") { _, _ ->
+                .setPositiveButton("导出") { _, _ ->
                     val qqNum = input.text.toString().trim()
                     if (qqNum.isEmpty()) { Toast.makeText(this, "请输入 QQ 号码", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                     lifecycleScope.launch(Dispatchers.IO) {
                         try {
-                            if (!SilkToolchain.isReady()) SilkToolchain.install(this@MainActivity)
-                            if (!SilkToolchain.isReady()) {
-                                withContext(Dispatchers.Main) { tvExportStatus.text = "安装工具链失败，请确认 Root 权限" }; return@launch
-                            }
-                            val wavs = cacheDir.listFiles { f -> f.name.startsWith("rvc_output") && f.name.endsWith(".wav") }
+                            // Check root
+                            val hasRoot = try {
+                                val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "echo OK"))
+                                val ok = p.inputStream.bufferedReader().readLine() == "OK"
+                                p.destroy(); ok
+                            } catch (_: Exception) { false }
+
+                            // Find latest WAV
+                            val rvcDir = File("/sdcard/rvc")
+                            val wavs = rvcDir.listFiles { f -> f.name.endsWith(".wav") }
                             if (wavs.isNullOrEmpty()) {
-                                withContext(Dispatchers.Main) { tvExportStatus.text = "没有找到处理后的音频，请先实时变声" }; return@launch
+                                withContext(Dispatchers.Main) { tvExportStatus.text = "没有找到音频，请先录制并处理变声" }; return@launch
                             }
                             val wav = wavs.maxByOrNull { it.lastModified() }!!
-                            val slk = SilkToolchain.convertWavToSlk(wav.absolutePath)
-                            if (slk == null) { withContext(Dispatchers.Main) { tvExportStatus.text = "SLK 转换失败" }; return@launch }
 
-                            val base = "/storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/$qqNum/ptt"
-                            val fCmd = "find '$base' -mindepth 2 -type f -name '*.slk' -printf '%T@ %p\\n' 2>/dev/null | sort -n | tail -1 | awk '{print \$2}'"
-                            val fp = Runtime.getRuntime().exec(arrayOf("su", "-c", fCmd))
-                            val target = fp.inputStream.bufferedReader().readText().trim(); fp.waitFor()
-                            if (target.isEmpty()) {
-                                withContext(Dispatchers.Main) { tvExportStatus.text = "未找到 QQ 语音，请先发一条语音" }; return@launch
-                            }
-                            val rCmd = "cp '$slk' '$target' && chown \$(stat -c %U '$target'):\$(stat -c %G '$target') '$target' && chmod \$(stat -c %a '$target') '$target'"
-                            Runtime.getRuntime().exec(arrayOf("su", "-c", rCmd)).waitFor()
-                            withContext(Dispatchers.Main) {
-                                tvExportStatus.text = "✅ 已替换！回 QQ 播放即可"
-                                Toast.makeText(this@MainActivity, "✅ QQ 语音已替换", Toast.LENGTH_LONG).show()
+                            if (hasRoot) {
+                                // === Root 模式：一键安装工具链 + 查找 + 替换 ===
+                                if (!SilkToolchain.isReady()) SilkToolchain.install(this@MainActivity)
+                                if (!SilkToolchain.isReady()) {
+                                    withContext(Dispatchers.Main) { tvExportStatus.text = "安装工具链失败，请确认 Root 权限" }; return@launch
+                                }
+                                val slk = SilkToolchain.convertWavToSlk(wav.absolutePath)
+                                if (slk == null) { withContext(Dispatchers.Main) { tvExportStatus.text = "SLK 转换失败" }; return@launch }
+
+                                val base = "/storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/$qqNum/ptt"
+                                val fCmd = "find '$base' -mindepth 2 -type f -name '*.slk' -printf '%T@ %p\\n' 2>/dev/null | sort -n | tail -1"
+                                val fp = Runtime.getRuntime().exec(arrayOf("su", "-c", fCmd))
+                                val result = fp.inputStream.bufferedReader().readText().trim(); fp.waitFor()
+                                if (result.isEmpty()) {
+                                    withContext(Dispatchers.Main) { tvExportStatus.text = "未找到 QQ 语音，请先在 QQ 发一条语音" }; return@launch
+                                }
+                                // result format: "timestamp /path/to/file.slk"
+                                val targetPath = result.substringAfter(" ")
+                                val targetName = targetPath.substringAfterLast("/")
+                                // Copy SLK to ptt dir with same filename as original
+                                val copyCmd = "cp '$slk' '$base/$targetName' && chown \$(stat -c %U '$targetPath'):\$(stat -c %G '$targetPath') '$base/$targetName' && chmod \$(stat -c %a '$targetPath') '$base/$targetName'"
+                                Runtime.getRuntime().exec(arrayOf("su", "-c", copyCmd)).waitFor()
+                                withContext(Dispatchers.Main) {
+                                    tvExportStatus.text = "✅ 已替换为 $targetName\n回 QQ 播放即可"
+                                    Toast.makeText(this@MainActivity, "✅ QQ 语音已替换", Toast.LENGTH_LONG).show()
+                                }
+                            } else {
+                                // === 无 Root：保存 SLK + 手动替换教程 ===
+                                val slkPath = "/sdcard/rvc/${wav.nameWithoutExtension}.slk"
+                                val slk = SilkToolchain.convertWavToSlk(wav.absolutePath)
+                                if (slk == null) { withContext(Dispatchers.Main) { tvExportStatus.text = "SLK 转换失败" }; return@launch }
+                                val manual = """
+                                    手动替换步骤：
+                                    1. 在 QQ 发一条语音消息
+                                    2. 用 MT 管理器打开:
+                                       /storage/emulated/0/Android/data/
+                                       com.tencent.mobileqq/Tencent/
+                                       MobileQQ/$qqNum/ptt/
+                                    3. 找到最新 .slk 文件，记下文件名
+                                    4. 把 /sdcard/rvc/${wav.nameWithoutExtension}.slk
+                                       重命名为同样的文件名
+                                    5. 复制到上述目录覆盖原文件
+                                    6. 权限设为 644
+                                    7. 回 QQ 播放那条语音
+                                """.trimIndent()
+                                withContext(Dispatchers.Main) {
+                                    tvExportStatus.text = "SLK 已保存到 $slkPath\n\n$manual"
+                                    Toast.makeText(this@MainActivity, "SLK 已保存到 $slkPath", Toast.LENGTH_LONG).show()
+                                }
                             }
                         } catch (e: Exception) { withContext(Dispatchers.Main) { tvExportStatus.text = "导出失败: ${e.message}" } }
                     }
@@ -248,9 +288,11 @@ class MainActivity : AppCompatActivity() {
             val result = rvcRealtime.engine.infer(inp, rvcRealtime.f0UpKey)
 
             if (result != null && result.isNotEmpty()) {
-                val outFile = File(cacheDir, "rvc_output_${System.currentTimeMillis()}.wav")
+                val rvcDir = File("/sdcard/rvc")
+                rvcDir.mkdirs()
+                val outFile = File(rvcDir, "voice_${System.currentTimeMillis()}.wav")
                 io.github.neboyang.voicechanger.WavFile.write(outFile, result, 40000)
-                tvStatus.post { tvStatus.text = "✅ 已保存: ${outFile.name}" }
+                tvStatus.post { tvStatus.text = "✅ 已保存: $outFile" }
                 tvExportStatus.post { tvExportStatus.text = "已生成变声音频，可点击导出" }
             } else {
                 tvStatus.post { tvStatus.text = "❌ 处理失败" }
