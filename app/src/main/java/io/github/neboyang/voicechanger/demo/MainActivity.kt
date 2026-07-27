@@ -87,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             rvcRealtime.isRunning.collect { running ->
                 btnRvcRealtime.text = if (running) "停止" else "开始 AI 实时变声"
-                tvStatus.text = if (running) "🎧 运行中…" else "就绪"
+                tvStatus.text = if (running) "运行中…" else "就绪"
             }
         }
 
