@@ -50,6 +50,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         modelManager = RVCModelManager(this)
 
+        // 启动时请求所有必要权限
+        requestAllPermissions()
+
         tvStatus = findViewById(R.id.tvStatus)
         tvModelStatus = findViewById(R.id.tvModelStatus)
         tvF0Key = findViewById(R.id.tvF0Key)
@@ -93,6 +96,11 @@ class MainActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                 Toast.makeText(this, "请允许悬浮窗权限", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                Toast.makeText(this, "请允许通知权限", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             FloatMicService.engineRef = rvcRealtime.engine
@@ -148,6 +156,19 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply { data = Uri.parse("package:$packageName") })
         } else storagePermLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
+
+    private fun requestAllPermissions() {
+        // 录音权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+        // 通知权限 (Android 13+)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private val notifPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     private val permLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) pendingAction?.invoke(); pendingAction = null }
     private var pendingAction: (() -> Unit)? = null

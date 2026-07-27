@@ -9,17 +9,21 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import android.util.Log
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -33,204 +37,219 @@ class FloatMicService : Service() {
     private var recordThread: Thread? = null
     private var audioRecord: AudioRecord? = null
     private var engine: RVCOnnxEngine? = null
-    private var autoPlayThread: Thread? = null
-    private var isRunning = true
+    private var lastPlayTime = 0L
+    private var isOurRecording = false  // 是否是我们自己在录音
+    private var audioManager: AudioManager? = null
+
+    private fun debugLog(msg: String) {
+        Log.d("RVC", msg)
+        try { java.io.FileOutputStream("/sdcard/rvc_debug.txt", true).use { it.write(("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())} $msg\n").toByteArray()) } } catch (_: Exception) {}
+    }
 
     companion object {
-        private const val CHANNEL_ID = "rvc_float"
-        private const val NOTIF_ID = 1001
         var engineRef: RVCOnnxEngine? = null
         fun start(ctx: Context) { ctx.startForegroundService(Intent(ctx, FloatMicService::class.java)) }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, FloatMicService::class.java)) }
     }
 
-    override fun onCreate() {
-        super.onCreate()
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        createNotificationChannel()
-        startForeground(NOTIF_ID, Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("喵喵RVC").setContentText("悬浮窗运行中")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now).build())
-
-        val inflater = LayoutInflater.from(this)
-        floatView = inflater.inflate(R.layout.float_mic, null)
-        tvStatus = floatView.findViewById(R.id.tvFloatStatus)
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        params.gravity = Gravity.TOP or Gravity.START
-        params.x = 100; params.y = 200
-        wm.addView(floatView, params)
-
-        // 拖拽
-        var dx = 0f; var dy = 0f
-        floatView.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> { dx = event.rawX - params.x; dy = event.rawY - params.y; false }
-                MotionEvent.ACTION_MOVE -> { params.x = (event.rawX - dx).toInt(); params.y = (event.rawY - dy).toInt(); wm.updateViewLayout(floatView, params); true }
-                else -> false
-            }
-        }
-
-        // ✕ 关闭按钮
-        floatView.findViewById<View>(R.id.btnFloatClose)?.setOnClickListener {
-            stopSelf()
-        }
-
-        // 点击：录制/停止
-        floatView.setOnClickListener {
-            if (engine?.isLoaded() != true) {
-                tvStatus?.text = "⏳ 加载中…"
-                Thread { for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; if (engine?.isLoaded() == true) break; Thread.sleep(1000) }
-                    floatView.post { if (engine?.isLoaded() == true) tvStatus?.text = "🎤 点录制" else tvStatus?.text = "❌ 未加载" } }.start()
-                return@setOnClickListener
-            }
-            if (isRecording) stopRecord()
-            else startRecord()
-        }
-
-        // 长按：停止录音并外放
-        floatView.setOnLongClickListener {
-            if (isRecording) {
-                isRecording = false
-                recordThread?.join(3000)
-                tvStatus?.text = "🔊 外放中…"
-                playLatest()
-            } else {
+    // ---- AudioRecordingCallback 检测麦克风占用 ----
+    private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
+        override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>?) {
+            if (isOurRecording) return // 我们自己录音，不触发外放
+            val active = configs?.any { it.clientAudioSource == MediaRecorder.AudioSource.MIC ||
+                it.clientAudioSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION } == true
+            if (active) {
+                tvStatus?.text = "📢 检测到录音"
                 playLatest()
             }
-            true
         }
-
-        // 加载引擎
-        engine = engineRef
-        if (engine?.isLoaded() != true) {
-            tvStatus?.text = "⏳ 等待模型…"
-            Thread {
-                for (i in 0..10) { if (engine?.isLoaded() == true) break; Thread.sleep(1000) }
-                floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "🎤 点录制" else "❌ 未加载" }
-            }.start()
-        } else {
-            tvStatus?.text = "🎤 点录制"
-        }
-
-        // 后台检测：其他 App 使用麦克风时自动外放
-        startMicMonitor()
     }
 
-    // ---- 麦克风占用检测 ----
-    private fun startMicMonitor() {
-        autoPlayThread = Thread({
-            while (isRunning) {
-                try {
-                    // 尝试创建 AudioRecord，如果失败说明其他 App 在用麦克风
-                    val testRec = AudioRecord(MediaRecorder.AudioSource.MIC, 44100,
-                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, 2048)
-                    if (testRec.state != AudioRecord.STATE_INITIALIZED) {
-                        // 麦克风被占用 → 自动外放
-                        floatView.post { tvStatus?.text = "📢 检测到麦克风被占用，自动外放" }
-                        playLatest()
-                        Thread.sleep(8000) // 8 秒内不重复触发
-                    }
-                    testRec.release()
-                } catch (_: Exception) {
-                    floatView.post { tvStatus?.text = "📢 自动外放" }
-                    playLatest()
-                    Thread.sleep(8000)
-                }
-                Thread.sleep(2000) // 每 2 秒检测一次
-            }
-        }, "mic-monitor").apply { isDaemon = true; start() }
-    }
-
-    // ---- 录音 ----
-    private fun startRecord() {
-        if (engine?.isLoaded() != true) { tvStatus?.text = "❌ 模型未加载"; return }
-        val sr = 48000
-        val bufSize = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        audioRecord = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufSize * 2)
-        audioRecord!!.startRecording()
-        isRecording = true
-        tvStatus?.text = "🔴 录音中…"
-
-        recordThread = Thread({
-            val pcmList = mutableListOf<ShortArray>()
-            val buf = ShortArray(bufSize)
-            while (isRecording) { val r = audioRecord!!.read(buf, 0, buf.size); if (r > 0) pcmList.add(buf.copyOf(r)) }
-            audioRecord!!.stop(); audioRecord!!.release(); audioRecord = null
-            val total = pcmList.sumOf { it.size }
-            val floatAudio = FloatArray(total); var off = 0
-            for (arr in pcmList) for (s in arr) floatAudio[off++] = s / 32768f
-            tvStatus?.post { tvStatus?.text = "⏳ 处理中…" }
-            val inp = FloatArray(floatAudio.size / 3) { floatAudio[it * 3] }
-            val result = engine?.infer(inp, 0)
-            if (result != null && result.isNotEmpty()) {
-                File("/sdcard/rvc").mkdirs()
-                io.github.neboyang.voicechanger.WavFile.write(File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"), result, 40000)
-                tvStatus?.post { tvStatus?.text = "✅ 已保存" }
-            } else tvStatus?.post { tvStatus?.text = "❌ 处理失败" }
-        }, "float-record")
-        recordThread!!.start()
-    }
-
-    private fun stopRecord() {
-        isRecording = false; recordThread?.join(3000)
-        tvStatus?.text = "🎤 点录制"
-    }
-
-    // ---- 外放最新变声 ----
     private fun playLatest() {
+        if (System.currentTimeMillis() - lastPlayTime < 3000) { debugLog("太频繁，跳过"); return }
+        lastPlayTime = System.currentTimeMillis()
+
         Thread({
             try {
                 val dir = File("/sdcard/rvc")
                 val wavs = dir.listFiles { f -> f.name.endsWith(".wav") }
-                if (wavs.isNullOrEmpty()) { tvStatus?.post { tvStatus?.text = "没有音频" }; return@Thread }
-                val f = wavs.maxByOrNull { f2 -> f2.lastModified() }!!
-                val data = f.readBytes()
-                val sr = ByteBuffer.wrap(data, 24, 4).order(ByteOrder.LITTLE_ENDIAN).int
-                val ch = ByteBuffer.wrap(data, 22, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-                val bits = ByteBuffer.wrap(data, 34, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-                val off = if (data[0] == 0x52.toByte()) 44 else 0
-                val pcm = data.copyOfRange(off, data.size)
-                val chMask = if (ch == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
+                if (wavs.isNullOrEmpty()) { debugLog("❌ 没有 WAV"); tvStatus?.post { tvStatus?.text = "没有音频" }; return@Thread }
+                val f = wavs.maxByOrNull { it.lastModified() }!!
+                val d = f.readBytes()
+                val sr = ByteBuffer.wrap(d, 24, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                val ch = ByteBuffer.wrap(d, 22, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
+                val bits = ByteBuffer.wrap(d, 34, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
+                val off = if (d[0] == 0x52.toByte()) 44 else 0
+                val pcm = d.copyOfRange(off, d.size)
+                val cm = if (ch == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
                 val enc = if (bits == 16) AudioFormat.ENCODING_PCM_16BIT else AudioFormat.ENCODING_PCM_8BIT
+                val dur = pcm.size.toLong() * 1000 / (sr * ch * bits / 8)
+                debugLog("WAV: sr=$sr ch=$ch bits=$bits pcm=${pcm.size} dur=${dur}ms")
 
-                val track = AudioTrack.Builder()
+                val bufSize = AudioTrack.getMinBufferSize(sr, cm, enc)
+                debugLog("bufSize=$bufSize")
+
+                // 先创建 AudioTrack（在 MODE_NORMAL 下创建，兼容性最好）
+                val tr = AudioTrack.Builder()
                     .setAudioAttributes(AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED).build())
-                    .setAudioFormat(AudioFormat.Builder().setEncoding(enc).setSampleRate(sr).setChannelMask(chMask).build())
-                    .setBufferSizeInBytes(AudioTrack.getMinBufferSize(sr, chMask, enc) * 2)
-                    .setTransferMode(AudioTrack.MODE_STATIC).build()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioFormat(AudioFormat.Builder().setEncoding(enc).setSampleRate(sr).setChannelMask(cm).build())
+                    .setBufferSizeInBytes(bufSize * 2)
+                    .setTransferMode(AudioTrack.MODE_STREAM).build()
+                debugLog("AudioTrack state=${tr.state}")
+                if (tr.state != AudioTrack.STATE_INITIALIZED) { debugLog("❌ 初始化失败"); return@Thread }
 
-                track.write(pcm, 0, pcm.size)
-                track.setVolume(android.media.AudioTrack.getMaxVolume())
-                track.play()
+                // 再切通信模式 + 扬声器
+                Handler(Looper.getMainLooper()).post {
+                    audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        val speaker = audioManager?.availableCommunicationDevices
+                            ?.find { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                        if (speaker != null) {
+                            audioManager?.setCommunicationDevice(speaker)
+                            debugLog("setCommunicationDevice OK")
+                        } else {
+                            audioManager?.isSpeakerphoneOn = true
+                            debugLog("fallback speakerphoneOn")
+                        }
+                    } else {
+                        audioManager?.isSpeakerphoneOn = true
+                    }
+                    audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC,
+                        audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15, 0)
+                }
+                Thread.sleep(300)
+
+                // MODE_STREAM 分块写入
+                tr.play()
+                var offset = 0
+                while (offset < pcm.size) {
+                    val chunk = minOf(pcm.size - offset, bufSize)
+                    tr.write(pcm, offset, chunk)
+                    offset += chunk
+                }
+                debugLog("写入完成: $offset bytes")
+
                 tvStatus?.post { tvStatus?.text = "🔊 外放中…" }
-                Thread.sleep(pcm.size.toLong() * 1000 / (sr * ch * bits / 8) + 200)
-                track.stop(); track.release()
+                val maxWait = dur + 2000
+                val started = System.currentTimeMillis()
+                while (System.currentTimeMillis() - started < maxWait) {
+                    if (tr.playState != AudioTrack.PLAYSTATE_PLAYING) break
+                    Thread.sleep(50)
+                }
+                debugLog("播放 ${System.currentTimeMillis()-started}ms / 预期 ${dur}ms")
+                tr.stop(); tr.release()
+
+                Handler(Looper.getMainLooper()).post {
+                    if (Build.VERSION.SDK_INT >= 31) audioManager?.clearCommunicationDevice()
+                    audioManager?.isSpeakerphoneOn = false
+                    audioManager?.mode = AudioManager.MODE_NORMAL
+                }
                 tvStatus?.post { tvStatus?.text = "🎤 点录制" }
-            } catch (_: Exception) {}
-        }, "float-play").start()
+            } catch (e: Exception) {
+                debugLog("❌ ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }).start()
     }
 
-    private fun createNotificationChannel() {
+    override fun onCreate() {
+        super.onCreate()
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        createNotifChannel()
+        startForeground(1001, Notification.Builder(this, "rvc_float")
+            .setContentTitle("喵喵RVC").setContentText("悬浮窗运行中")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now).build())
+
+        floatView = LayoutInflater.from(this).inflate(R.layout.float_mic, null)
+        tvStatus = floatView.findViewById(R.id.tvFloatStatus)
+
+        val p = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT)
+        p.gravity = Gravity.TOP or Gravity.START; p.x = 100; p.y = 200
+        wm.addView(floatView, p)
+
+        // 拖拽
+        var dx = 0f; var dy = 0f
+        floatView.setOnTouchListener { _, ev ->
+            when (ev.action) {
+                MotionEvent.ACTION_DOWN -> { dx = ev.rawX - p.x; dy = ev.rawY - p.y; false }
+                MotionEvent.ACTION_MOVE -> { p.x = (ev.rawX - dx).toInt(); p.y = (ev.rawY - dy).toInt(); wm.updateViewLayout(floatView, p); true }
+                else -> false
+            }
+        }
+
+        // ✕ 关闭
+        floatView.findViewById<View>(R.id.btnFloatClose)?.setOnClickListener { stopSelf() }
+
+        // 点击：录音/停止
+        floatView.setOnClickListener {
+            if (engine?.isLoaded() != true) {
+                Thread {
+                    for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; Thread.sleep(1000) }
+                    floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "🎤 点录制" else "❌ 未加载" }
+                }.start(); return@setOnClickListener
+            }
+            if (isRecording) { isRecording = false; isOurRecording = false; recordThread?.join(3000); tvStatus?.text = "🎤 点录制" }
+            else startRecord()
+        }
+
+        // 长按：外放
+        floatView.setOnLongClickListener { playLatest(); true }
+
+        engine = engineRef
+        tvStatus?.text = if (engine?.isLoaded() == true) "🎤 点录制" else "⏳ 等待模型…"
+        if (engine?.isLoaded() != true) Thread {
+            for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; Thread.sleep(1000) }
+            floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "🎤 点录制" else "❌ 未加载" }
+        }.start()
+
+        // 注册 AudioRecordingCallback
+        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        if (Build.VERSION.SDK_INT >= 23) {
+            audioManager?.registerAudioRecordingCallback(recordingCallback, null)
+            tvStatus?.text = "🎤 点录制（自动检测）"
+        } else {
+            tvStatus?.text = "🎤 点录制"
+        }
+    }
+
+    private fun startRecord() {
+        val sr = 48000
+        val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        audioRecord = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 2)
+        audioRecord!!.startRecording(); isRecording = true; isOurRecording = true; tvStatus?.text = "🔴 录音中…"
+
+        recordThread = Thread({
+            val list = mutableListOf<ShortArray>(); val buf = ShortArray(bs)
+            while (isRecording) { val r = audioRecord!!.read(buf, 0, buf.size); if (r > 0) list.add(buf.copyOf(r)) }
+            audioRecord!!.stop(); audioRecord!!.release(); audioRecord = null
+            val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
+            for (a in list) for (s in a) fa[o++] = s / 32768f
+            tvStatus?.post { tvStatus?.text = "⏳ 处理中…" }
+            val inp = FloatArray(fa.size / 3) { fa[it * 3] }
+            val res = engine?.infer(inp, 0)
+            if (res != null && res.isNotEmpty()) {
+                File("/sdcard/rvc").mkdirs()
+                io.github.neboyang.voicechanger.WavFile.write(File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"), res, 40000)
+                tvStatus?.post { tvStatus?.text = "✅ 已保存" }
+            } else tvStatus?.post { tvStatus?.text = "❌ 处理失败" }
+        }, "float-record").also { it.start() }
+    }
+
+    private fun createNotifChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            val c = NotificationChannel(CHANNEL_ID, "喵喵RVC", NotificationManager.IMPORTANCE_LOW)
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(c)
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(NotificationChannel("rvc_float", "喵喵RVC", NotificationManager.IMPORTANCE_LOW))
         }
     }
 
     override fun onDestroy() {
-        isRunning = false; isRecording = false
-        recordThread?.join(2000); autoPlayThread?.join(2000)
+        isRecording = false; recordThread?.join(2000)
+        if (Build.VERSION.SDK_INT >= 23) audioManager?.unregisterAudioRecordingCallback(recordingCallback)
         try { audioRecord?.stop(); audioRecord?.release() } catch (_: Exception) {}
         try { wm.removeView(floatView) } catch (_: Exception) {}
         super.onDestroy()
