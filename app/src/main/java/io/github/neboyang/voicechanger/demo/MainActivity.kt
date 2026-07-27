@@ -33,9 +33,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvModelStatus: TextView
     private lateinit var tvF0Key: TextView
     private lateinit var tvLatency: TextView
+    private lateinit var tvNoise: TextView
+    private lateinit var tvEq: TextView
+    private lateinit var tvBackend: TextView
     private lateinit var modelList: ChipGroup
     private lateinit var sliderF0Key: Slider
     private lateinit var sliderLatency: Slider
+    private lateinit var sliderNoise: Slider
+    private lateinit var sliderEq: Slider
     private lateinit var btnRvcRealtime: MaterialButton
     private lateinit var btnFloat: MaterialButton
     private var currentModelDir: File? = null
@@ -57,15 +62,21 @@ class MainActivity : AppCompatActivity() {
         tvModelStatus = findViewById(R.id.tvModelStatus)
         tvF0Key = findViewById(R.id.tvF0Key)
         tvLatency = findViewById(R.id.tvLatency)
+        tvNoise = findViewById(R.id.tvNoise)
+        tvEq = findViewById(R.id.tvEq)
+        tvBackend = findViewById(R.id.tvBackend)
         modelList = findViewById(R.id.modelList)
         sliderF0Key = findViewById(R.id.sliderF0Key)
         sliderLatency = findViewById(R.id.sliderLatency)
+        sliderNoise = findViewById(R.id.sliderNoise)
+        sliderEq = findViewById(R.id.sliderEq)
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnFloat = findViewById(R.id.btnFloat)
 
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
             rvcRealtime.f0UpKey = value.toInt()
+            io.github.neboyang.voicechanger.FloatMicService.f0UpKeyRef = value.toInt()
         }
         tvF0Key.text = getString(R.string.rvc_f0_key, 0)
 
@@ -74,6 +85,22 @@ class MainActivity : AppCompatActivity() {
             rvcRealtime.latencyMs = (value * 1000).toInt()
         }
         tvLatency.text = getString(R.string.rvc_latency, 1.0)
+
+        sliderNoise.addOnChangeListener { _, value, _ ->
+            val level = value.toInt()
+            tvNoise.text = getString(R.string.rvc_noise, level)
+            rvcRealtime.engine.noiseLevel = level
+            io.github.neboyang.voicechanger.FloatMicService.noiseLevelRef = level
+        }
+        tvNoise.text = getString(R.string.rvc_noise, 0)
+
+        sliderEq.addOnChangeListener { _, value, _ ->
+            val level = value.toInt()
+            tvEq.text = getString(R.string.rvc_eq, level)
+            rvcRealtime.engine.eqLevel = level
+            io.github.neboyang.voicechanger.FloatMicService.eqLevelRef = level
+        }
+        tvEq.text = getString(R.string.rvc_eq, 0)
 
         btnRvcRealtime.setOnClickListener {
             if (rvcRealtime.isRunning.value) rvcRealtime.stop()
@@ -141,7 +168,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val ok = rvcRealtime.loadModel(dir)
             withContext(Dispatchers.Main) {
-                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true }
+                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
                 else tvModelStatus.setText(R.string.rvc_model_failed)
             }
         }

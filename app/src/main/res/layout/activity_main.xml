@@ -119,6 +119,14 @@
                     android:text="@string/rvc_delete" />
             </LinearLayout>
 
+            <TextView
+                android:id="@+id/tvBackend"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
             <!-- AI 参数 -->
             <TextView
                 android:layout_width="match_parent"
@@ -168,6 +176,36 @@
                 android:valueFrom="0.5"
                 android:valueTo="5"
                 android:stepSize="0.5" />
+
+            <TextView
+                android:id="@+id/tvNoise"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderNoise"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:value="0"
+                android:valueFrom="0"
+                android:valueTo="5"
+                android:stepSize="1" />
+
+            <TextView
+                android:id="@+id/tvEq"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderEq"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:value="0"
+                android:valueFrom="0"
+                android:valueTo="5"
+                android:stepSize="1" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnFloat"

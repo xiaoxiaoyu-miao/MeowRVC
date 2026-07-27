@@ -75,6 +75,10 @@ class RVCRealtime {
                         val inp = FloatArray(accum.size / 3) { accum[it * 3] }
                         val result = engine.infer(inp, f0UpKey)
                         if (result != null && result.isNotEmpty()) {
+                            // 反馈抑制：输出后清空前段累积（打断声学反馈环路）
+                            val feedbackGuard = accum.size / 2
+                            for (i in 0 until feedbackGuard) accum[i] = 0f
+
                             val outLen = result.size * 48 / 40
                             val outShort = ShortArray(outLen)
                             for (i in 0 until outLen) {

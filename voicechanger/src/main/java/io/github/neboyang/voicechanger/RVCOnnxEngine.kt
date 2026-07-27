@@ -21,6 +21,16 @@ class RVCOnnxEngine {
     var targetSr = 40000
         private set
 
+    /** 降噪级别 0~5（0=关） */
+    var noiseLevel: Int = 0
+
+    /** 外放补偿 EQ 级别 0~5（0=关，5=最强补偿） */
+    var eqLevel: Int = 0
+
+    /** 当前推理后端 */
+    var backendInfo: String = "未知"
+        private set
+
     fun load(modelDir: File): Boolean {
         try {
             val cfgFile = File(modelDir, "config.json")
@@ -29,8 +39,13 @@ class RVCOnnxEngine {
                 targetSr = json.optInt("target_sr", 40000)
             }
             // Provider priority: NNAPI > Xnnpack > CPU
-            val available = OrtEnvironment.getAvailableProviders().toList()
+            val available = OrtEnvironment.getAvailableProviders().map { it.name }
             Log.e("RVC", "Available providers: $available")
+            backendInfo = when {
+                "NnapiExecutionProvider" in available -> "NNAPI (NPU/GPU)"
+                "XnnpackExecutionProvider" in available -> "XNNPACK (CPU 加速)"
+                else -> "CPU"
+            }
             val opts = OrtSession.SessionOptions()
             opts.addConfigEntry("session.intra_op.allow_spinning", "1")
             // Try NNAPI first
@@ -111,6 +126,24 @@ class RVCOnnxEngine {
      */
     fun infer(audio: FloatArray, f0UpKey: Int = 0): FloatArray? {
         if (!loaded || audio.size < 320) return null
+
+        // 降噪门控
+        if (noiseLevel > 0) {
+            val frameHop = 160
+            val threshold = floatArrayOf(0.005f, 0.01f, 0.02f, 0.04f, 0.08f)[noiseLevel - 1]
+            val attenuate = 0.1f
+            for (t in 0 until audio.size / frameHop) {
+                val start = t * frameHop
+                val end = minOf(start + frameHop, audio.size)
+                var energy = 0f
+                for (i in start until end) energy += audio[i] * audio[i]
+                energy = kotlin.math.sqrt(energy / (end - start))
+                if (energy < threshold) {
+                    for (i in start until end) audio[i] *= attenuate
+                }
+            }
+        }
+
         try {
             val maxFrames = 50
             val hop = 160
@@ -225,6 +258,23 @@ class RVCOnnxEngine {
             val result = FloatArray(total)
             var offset = 0
             for (arr in allOutput) { System.arraycopy(arr, 0, result, offset, arr.size); offset += arr.size }
+
+            // 外放补偿 EQ（扬声器→空气→微信麦克风 频响补偿）
+            if (eqLevel > 0) {
+                val intensity = eqLevel * 0.15f // 0.15 ~ 0.75
+                // 高通预加重：补偿高频衰减 + 减少低频浑浊
+                for (i in result.size - 1 downTo 1) {
+                    result[i] = result[i] - intensity * result[i - 1]
+                }
+                // 限制防止爆音
+                var peak = 0f
+                for (i in result.indices) { val a = kotlin.math.abs(result[i]); if (a > peak) peak = a }
+                if (peak > 0.95f) {
+                    val scale = 0.95f / peak
+                    for (i in result.indices) result[i] *= scale
+                }
+            }
+
             return result
         } catch (e: Exception) {
             Log.e("RVC", "Infer failed", e)

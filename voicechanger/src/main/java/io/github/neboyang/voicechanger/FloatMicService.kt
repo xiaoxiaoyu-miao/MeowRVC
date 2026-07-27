@@ -43,6 +43,9 @@ class FloatMicService : Service() {
 
     companion object {
         var engineRef: RVCOnnxEngine? = null
+        var f0UpKeyRef: Int = 0
+        var noiseLevelRef: Int = 0
+        var eqLevelRef: Int = 0
         fun start(ctx: Context) { ctx.startForegroundService(Intent(ctx, FloatMicService::class.java)) }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, FloatMicService::class.java)) }
     }
@@ -166,7 +169,7 @@ class FloatMicService : Service() {
         floatView.setOnClickListener {
             if (engine?.isLoaded() != true) {
                 Thread {
-                    for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; Thread.sleep(1000) }
+                    for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.noiseLevel = noiseLevelRef; engine?.eqLevel = eqLevelRef; Thread.sleep(1000) }
                     floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
                 }.start(); return@setOnClickListener
             }
@@ -177,9 +180,11 @@ class FloatMicService : Service() {
         floatView.setOnLongClickListener { playLatest(); true }
 
         engine = engineRef
+        engine?.noiseLevel = noiseLevelRef
+        engine?.eqLevel = eqLevelRef
         tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "等待模型…"
         if (engine?.isLoaded() != true) Thread {
-            for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; Thread.sleep(1000) }
+            for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.noiseLevel = noiseLevelRef; engine?.eqLevel = eqLevelRef; Thread.sleep(1000) }
             floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
         }.start()
 
@@ -206,7 +211,7 @@ class FloatMicService : Service() {
             for (a in list) for (s in a) fa[o++] = s / 32768f
             tvStatus?.post { tvStatus?.text = "处理中…" }
             val inp = FloatArray(fa.size / 3) { fa[it * 3] }
-            val res = engine?.infer(inp, 0)
+            val res = engine?.infer(inp, f0UpKeyRef)
             if (res != null && res.isNotEmpty()) {
                 File("/sdcard/rvc").mkdirs()
                 io.github.neboyang.voicechanger.WavFile.write(File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"), res, 40000)
