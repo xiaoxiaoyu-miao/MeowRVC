@@ -170,27 +170,12 @@
                 android:stepSize="0.5" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRecordRvc"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="录制并处理变声" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnExportSlk"
+                android:id="@+id/btnFloat"
                 style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="导出为 QQ 语音 (SLK)" />
-
-            <TextView
-                android:id="@+id/tvExportStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textIsSelectable="true" />
+                android:layout_marginTop="12dp"
+                android:text="启动悬浮麦克风" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRvcRealtime"

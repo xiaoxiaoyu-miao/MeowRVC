@@ -27,6 +27,9 @@ class RVCRealtime {
 
     fun loadModel(modelDir: File): Boolean {
         modelLoaded = engine.load(modelDir)
+        if (modelLoaded) {
+            engine.startServer()  // Start LSPosed socket server
+        }
         return modelLoaded
     }
 
