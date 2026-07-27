@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">喵喵RVC</string>
+
+    <!-- 状态 -->
+    <string name="status_idle">就绪</string>
+    <string name="status_recording">● 录音中…</string>
+    <string name="status_processing">处理中…</string>
+    <string name="status_playing">▶ 播放中…</string>
+    <string name="status_done">播放完成</string>
+
+    <!-- 录音按钮 -->
+    <string name="btn_record">录音</string>
+    <string name="btn_pause">暂停</string>
+    <string name="btn_resume">继续</string>
+    <string name="btn_stop">停止</string>
+    <string name="btn_process">变声并播放</string>
+
+    <!-- AI RVC 模式 -->
+    <string name="rvc_model_title">AI 模型</string>
+    <string name="rvc_help">将 PC 转换好的 .onnx 文件夹放到 /sdcard/models/ 目录下</string>
+    <string name="rvc_refresh">刷新列表</string>
+    <string name="rvc_delete">删除模型</string>
+    <string name="rvc_no_model">未检测到模型</string>
+    <string name="rvc_model_loaded">已加载：%1$s</string>
+    <string name="rvc_model_loading">加载模型中…</string>
+    <string name="rvc_model_failed">模型加载失败</string>
+    <string name="rvc_start">开始 AI 实时变声</string>
+    <string name="rvc_stop">停止 AI 实时变声</string>
+    <string name="rvc_params">变声参数</string>
+    <string name="rvc_f0_key">音高偏移：%1$+d 半音</string>
+    <string name="rvc_latency">延时：%1$.1f 秒（越长音质越好）</string>
+    <string name="rvc_protect">气息保护：%1$.0f%%</string>
+    <string name="rvc_no_models">暂无模型。用 PC 运行 convert_rvc.py 转换 .pth → .onnx，放入此目录</string>
+</resources>

@@ -1,0 +1,9 @@
+VoiceChanger includes SoundTouch 2.4.1, licensed under the GNU Lesser General
+Public License version 2.1. The corresponding source and complete license text
+are preserved in this distribution's source repository under:
+
+  voicechanger/src/main/cpp/soundtouch/
+  voicechanger/src/main/cpp/soundtouch/COPYING.TXT
+
+Upstream project: https://www.surina.net/soundtouch/
+Upstream source:  https://codeberg.org/soundtouch/soundtouch

@@ -1,0 +1,24 @@
+[versions]
+agp = "8.7.3"
+kotlin = "1.9.24"
+coroutines = "1.7.3"
+annotation = "1.9.1"
+coreKtx = "1.15.0"
+appcompat = "1.7.0"
+material = "1.12.0"
+lifecycle = "2.8.7"
+junit = "4.13.2"
+
+[libraries]
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
+material = { module = "com.google.android.material:material", version.ref = "material" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

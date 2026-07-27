@@ -1,0 +1,3 @@
+[submodule "voicechanger/src/main/cpp/3rdparty/MNN"]
+	path = voicechanger/src/main/cpp/3rdparty/MNN
+	url = https://github.com/alibaba/MNN.git
