@@ -103,20 +103,30 @@ class MainActivity : AppCompatActivity() {
     private val folderPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri == null) return@registerForActivityResult
-            // Convert content URI to file path
             val path = uri.path ?: return@registerForActivityResult
-            // /tree/primary:models/2888 → /sdcard/models/2888
-            val sdcardPath = path.substringAfter("primary:").substringBefore("/tree")
+            android.util.Log.e("RVC", "Folder URI: $uri path: $path")
+            // content://.../tree/primary:models/2888 → /sdcard/models/2888
+            val sdcardPath = path.substringAfter("primary:").substringBefore("/document").substringBefore("/tree").trimEnd('/')
             val folderPath = "/sdcard/$sdcardPath"
+            android.util.Log.e("RVC", "Resolved folder: $folderPath")
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
+                    val dir = java.io.File(folderPath)
+                    if (!dir.exists()) {
+                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "路径不存在: $folderPath", Toast.LENGTH_LONG).show() }
+                        return@launch
+                    }
+                    val onnxFiles = dir.listFiles { f -> f.extension == "onnx" && f.name !in setOf("hubert.onnx", "rmvpe.onnx") }
+                    android.util.Log.e("RVC", "Files in dir: ${dir.list()?.joinToString()}")
+                    if (onnxFiles.isNullOrEmpty()) {
+                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "未找到 ONNX 模型，请确保文件夹内有 .onnx 文件", Toast.LENGTH_LONG).show() }
+                        return@launch
+                    }
                     withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "下载基础模型中...", Toast.LENGTH_LONG).show() }
                     val info = modelManager.importFromFolder(folderPath)
                     if (info != null) {
                         refreshModelList()
                         withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "已导入: ${info.name}", Toast.LENGTH_SHORT).show() }
-                    } else {
-                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "文件夹中未找到 ONNX 模型", Toast.LENGTH_LONG).show() }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show() }
