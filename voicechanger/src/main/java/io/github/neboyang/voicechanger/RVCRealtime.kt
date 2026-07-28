@@ -60,12 +60,14 @@ class RVCRealtime {
 
         _isRunning.value = true
         record!!.startRecording()
-        track!!.play()
 
         val rawLatencyMs = latencyMs.coerceIn(500, 10000)
         val accumSize = sr * rawLatencyMs / 1000
         val overlapSize = accumSize / 4
         val ringBuf = ArrayBlockingQueue<FloatArray>(6)
+
+        // 预填两帧缓冲再开始播放，避免开头声音小
+        var bufferedChunks = 0
 
         // 录音线程（带重叠）
         recThread = Thread({
@@ -118,6 +120,14 @@ class RVCRealtime {
                             outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
                         }
                         prevTail = outShort.copyOfRange((outShort.size - 2048).coerceAtLeast(0), outShort.size)
+
+                        // 预填 2 帧后再播放，避免开头音量小
+                        if (bufferedChunks < 2) {
+                            track!!.write(outShort, 0, outShort.size)
+                            bufferedChunks++
+                            if (bufferedChunks == 2) track!!.play()
+                            continue
+                        }
 
                         var written = 0
                         while (written < outShort.size && _isRunning.value) {

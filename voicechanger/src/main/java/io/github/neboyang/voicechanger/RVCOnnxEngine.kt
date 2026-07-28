@@ -322,11 +322,9 @@ class RVCOnnxEngine {
                     System.arraycopy(featArr, srcPos, interp, t * FEAT_DIM, FEAT_DIM)
                 }
 
-                // F0: FCPE > RMVPE > autocorrelation
+                // F0: RMVPE > FCPE > autocorrelation
                 val tF0 = System.nanoTime()
-                val pitchf = if (sessions.containsKey("fcpe")) {
-                    extractFcpePitch(segAudio, sl)
-                } else if (sessions.containsKey("rmvpe") && useRmvpe) {
+                val pitchf = if (sessions.containsKey("rmvpe") && useRmvpe) {
                     extractRmvpePitch(segAudio, sl)
                 } else {
                     autocorrelateF0(segAudio, segSamples, sl, hop)
