@@ -1,4 +1,4 @@
-package io.github.neboyang.voicechanger
+package io.github.neboyang.voicechanger.demo
 
 import android.content.ContentProvider
 import android.content.ContentValues

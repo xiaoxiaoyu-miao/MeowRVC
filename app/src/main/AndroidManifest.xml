@@ -20,6 +20,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.VoiceChanger">
 
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="喵喵RVC - AI变声器" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -31,13 +41,13 @@
 
         <provider
             android:name=".PcmStreamProvider"
-            android:authorities="io.mo.glassmic.provider.pcm"
+            android:authorities="io.github.neboyang.voicechanger.provider.pcm"
             android:exported="true"
             android:grantUriPermissions="true" />
 
         <provider
             android:name=".RuntimeProvider"
-            android:authorities="io.mo.glassmic.provider.runtime"
+            android:authorities="io.github.neboyang.voicechanger.provider.runtime"
             android:exported="true"
             android:grantUriPermissions="true" />
     </application>

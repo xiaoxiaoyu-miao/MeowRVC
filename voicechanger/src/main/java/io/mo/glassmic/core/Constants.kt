@@ -26,8 +26,8 @@ object Constants {
     const val METHOD_AUDIO_INTERCEPT = "audio_intercept"
 
     // ContentProvider authorities
-    const val PROVIDER_RUNTIME = "io.mo.glassmic.provider.runtime"
-    const val PROVIDER_PCM = "io.mo.glassmic.provider.pcm"
+    const val PROVIDER_RUNTIME = "io.github.neboyang.voicechanger.provider.runtime"
+    const val PROVIDER_PCM = "io.github.neboyang.voicechanger.provider.pcm"
 
     // 通知
     const val NOTIF_CHANNEL_ID = "glassmic_running"
