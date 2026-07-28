@@ -37,15 +37,13 @@ class RVCModelManager(private val context: Context) {
     fun isModelDownloaded(modelId: String): Boolean = File(modelsDir, modelId).exists()
 
     /** 下载基础模型到缓存目录（国内镜像）*/
-    private suspend fun ensureBaseModels(): Boolean = withContext(Dispatchers.IO) {
-        val cacheDir = File(context.cacheDir, "base_models")
-        cacheDir.mkdirs()
+    private suspend fun ensureBaseModels(modelDir: File): Boolean = withContext(Dispatchers.IO) {
         val urls = mapOf(
-            "hubert.onnx" to "https://hf-mirror.com/Sharl210/ultimate-rvc-mobile/resolve/main/hubert.onnx",
-            "rmvpe.onnx" to "https://hf-mirror.com/Sharl210/ultimate-rvc-mobile/resolve/main/rmvpe.onnx"
+            "hubert.onnx" to "https://github.com/Sharl210/ultimate-rvc-mobile/releases/download/v2.0.0/hubert.onnx",
+            "rmvpe.onnx" to "https://github.com/Sharl210/ultimate-rvc-mobile/releases/download/v2.0.0/rmvpe.onnx"
         )
         for ((name, url) in urls) {
-            val target = File(cacheDir, name)
+            val target = File(modelDir, name)
             if (target.exists() && target.length() > 100_000_000) continue
             _downloadStatus.value = "下载 $name..."
             try {
@@ -73,44 +71,40 @@ class RVCModelManager(private val context: Context) {
         true
     }
 
-    /** 导入用户 ONNX 模型：下载基础模型 + 复制用户文件 + 生成 config */
-    suspend fun importModel(onnxPath: String): ModelInfo? = withContext(Dispatchers.IO) {
-        val onnxFile = File(onnxPath)
-        val modelName = onnxFile.nameWithoutExtension
-        val dir = File(modelsDir, modelName)
-        dir.mkdirs()
+    /** 从文件夹导入：扫描 ONNX，下载基础模型，生成 config */
+    suspend fun importFromFolder(folderPath: String): ModelInfo? = withContext(Dispatchers.IO) {
+        val dir = File(folderPath)
+        if (!dir.isDirectory) return@withContext null
+        val modelName = dir.name
 
-        // 1. 确保基础模型已下载
-        val baseOk = ensureBaseModels()
-        if (!baseOk) { return@withContext null }
+        // 扫描 ONNX 文件
+        val onnxFiles = dir.listFiles { f -> f.extension == "onnx" && f.name !in setOf("hubert.onnx", "rmvpe.onnx") }
+        if (onnxFiles.isNullOrEmpty()) return@withContext null
 
-        // 2. 复制基础模型到目标目录
-        val cacheDir = File(context.cacheDir, "base_models")
-        for (base in listOf("hubert.onnx", "rmvpe.onnx")) {
-            val target = File(dir, base)
-            if (!target.exists()) {
-                File(cacheDir, base).copyTo(target, overwrite = true)
+        // 下载基础模型到此目录
+        val baseOk = ensureBaseModels(dir)
+        if (!baseOk) return@withContext null
+
+        // 生成/更新 config.json
+        val cfgFile = File(dir, "config.json")
+        if (!cfgFile.exists()) {
+            val cfg = org.json.JSONObject().apply {
+                put("name", modelName)
+                put("version", "v2")
+                put("f0", true)
+                put("feat_dim", 768)
+                put("target_sr", 40000)
             }
+            cfgFile.writeText(cfg.toString())
         }
-
-        // 3. 复制用户 ONNX
-        val targetOnnx = File(dir, onnxFile.name)
-        if (!targetOnnx.exists()) onnxFile.copyTo(targetOnnx, overwrite = true)
-
-        // 4. 生成 config.json
-        val cfg = org.json.JSONObject().apply {
-            put("name", modelName)
-            put("version", "v2")
-            put("f0", true)
-            put("feat_dim", 768)
-            put("target_sr", 40000)
-        }
-        File(dir, "config.json").writeText(cfg.toString())
 
         val info = ModelInfo(id = modelName, name = modelName)
         scanLocalModels()
         return@withContext info
     }
+
+    /** 兼容旧版：从单个 ONNX 文件导入 */
+    suspend fun importModel(onnxPath: String): ModelInfo? = importFromFolder(File(onnxPath).parent)
 
     fun scanLocalModels() {
         if (!modelsDir.exists()) { _models.value = emptyList(); return }

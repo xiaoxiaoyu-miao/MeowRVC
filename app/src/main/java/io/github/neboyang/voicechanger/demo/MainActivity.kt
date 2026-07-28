@@ -100,26 +100,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    private val onnxPicker =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    private val folderPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri == null) return@registerForActivityResult
+            // Convert content URI to file path
+            val path = uri.path ?: return@registerForActivityResult
+            // /tree/primary:models/2888 → /sdcard/models/2888
+            val sdcardPath = path.substringAfter("primary:").substringBefore("/tree")
+            val folderPath = "/sdcard/$sdcardPath"
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    val input = contentResolver.openInputStream(uri) ?: return@launch
-                    val tmpFile = File(cacheDir, "import_${System.currentTimeMillis()}.onnx")
-                    input.use { it.copyTo(tmpFile.outputStream()) }
-                    val info = modelManager.importModel(tmpFile.absolutePath)
-                    tmpFile.delete()
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "下载基础模型中...", Toast.LENGTH_LONG).show() }
+                    val info = modelManager.importFromFolder(folderPath)
                     if (info != null) {
                         refreshModelList()
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(this@MainActivity, "已导入: ${info.name}", Toast.LENGTH_SHORT).show()
-                        }
+                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "已导入: ${info.name}", Toast.LENGTH_SHORT).show() }
                     } else {
-                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "导入失败，请检查网络", Toast.LENGTH_LONG).show() }
+                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "文件夹中未找到 ONNX 模型", Toast.LENGTH_LONG).show() }
                     }
                 } catch (e: Exception) {
-                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "失败: ${e.message}", Toast.LENGTH_SHORT).show() }
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show() }
                 }
             }
         }
@@ -350,7 +350,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnImportOnnx).setOnClickListener {
             if (!checkStoragePermission()) { requestStoragePermission(); return@setOnClickListener }
-            onnxPicker.launch(arrayOf("*/*"))
+            folderPicker.launch(null)
         }
         findViewById<MaterialButton>(R.id.btnDeleteModel).setOnClickListener {
             val dir = currentModelDir ?: return@setOnClickListener
