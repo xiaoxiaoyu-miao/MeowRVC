@@ -317,6 +317,14 @@
                 android:text="启动悬浮麦克风" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCloud"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="在线变声 (云端API)" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRvcRealtime"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

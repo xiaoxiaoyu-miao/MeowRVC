@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchVocalRange: SwitchCompat
     private lateinit var btnRvcRealtime: MaterialButton
     private lateinit var btnFloat: MaterialButton
+    private lateinit var btnCloud: MaterialButton
     private var currentModelDir: File? = null
     private var currentIndexPath: String? = null
 
@@ -111,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         switchVocalRange = findViewById(R.id.switchVocalRange)
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnFloat = findViewById(R.id.btnFloat)
+        btnCloud = findViewById(R.id.btnCloud)
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
         fun reloadWithBackend(mode: Int) {
@@ -236,6 +238,13 @@ class MainActivity : AppCompatActivity() {
             FloatMicService.engineRef = rvcRealtime.engine
             FloatMicService.start(this)
             Toast.makeText(this, "悬浮窗已启动", Toast.LENGTH_SHORT).show()
+        }
+
+        // 云端变声按钮
+        btnCloud.setOnClickListener {
+            val dir = File("/sdcard/rvc")
+            val latest = dir.listFiles { f -> f.name.endsWith(".wav") }?.maxByOrNull { it.lastModified() }
+            ReplicateCloudRvc(this).show(latest)
         }
 
         findViewById<MaterialButton>(R.id.btnRefreshModels).setOnClickListener {
