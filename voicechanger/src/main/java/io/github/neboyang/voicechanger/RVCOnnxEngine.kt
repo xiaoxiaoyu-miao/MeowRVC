@@ -153,7 +153,16 @@ class RVCOnnxEngine {
                 sessions["rmvpe"] = env.createSession(rmvpePath.absolutePath, opts)
                 Log.e("RVC", "Loaded rmvpe")
             } else {
-                Log.e("RVC", "rmvpe.onnx missing, will use autocorrelation F0")
+                Log.e("RVC", "rmvpe.onnx missing")
+            }
+
+            // fcpe (optional, 轻量音高提取)
+            val fcpePath = File(modelDir, "fcpe.onnx")
+            if (fcpePath.exists()) {
+                sessions["fcpe"] = env.createSession(fcpePath.absolutePath, opts)
+                Log.e("RVC", "Loaded fcpe")
+            } else {
+                Log.e("RVC", "fcpe.onnx missing, will use RMVPE or autocorrelation")
             }
 
             // Detect combined voice model (any .onnx that is not hubert/rmvpe/split names)
@@ -313,9 +322,11 @@ class RVCOnnxEngine {
                     System.arraycopy(featArr, srcPos, interp, t * FEAT_DIM, FEAT_DIM)
                 }
 
-                // F0: RMVPE or autocorrelation fallback
+                // F0: FCPE > RMVPE > autocorrelation
                 val tF0 = System.nanoTime()
-                val pitchf = if (sessions.containsKey("rmvpe") && useRmvpe) {
+                val pitchf = if (sessions.containsKey("fcpe")) {
+                    extractFcpePitch(segAudio, sl)
+                } else if (sessions.containsKey("rmvpe") && useRmvpe) {
                     extractRmvpePitch(segAudio, sl)
                 } else {
                     autocorrelateF0(segAudio, segSamples, sl, hop)
@@ -648,6 +659,35 @@ class RVCOnnxEngine {
             pitchf[f] = if (bestConf >= RMVPE_VOICED_THRESHOLD) rmvpeBinToFreq(bestBin) else 0f
         }
         return pitchf
+    }
+
+    private fun extractFcpePitch(audio16k: FloatArray, targetFrames: Int): FloatArray {
+        val fcpeFrameSize = 128
+        val totalFrames = ceil(audio16k.size.toDouble() / RMVPE_HOP_SIZE).toInt()
+        if (totalFrames <= 0) return FloatArray(targetFrames)
+
+        val mel = buildRmvpeMel(audio16k, totalFrames)
+        val allPitch = FloatArray(totalFrames)
+        val buf = FloatArray(RMVPE_MEL_BINS * fcpeFrameSize)
+
+        for (start in 0 until totalFrames step fcpeFrameSize) {
+            val count = minOf(fcpeFrameSize, totalFrames - start)
+            java.util.Arrays.fill(buf, 0f)
+            for (i in 0 until count * RMVPE_MEL_BINS) {
+                buf[i] = mel[start * RMVPE_MEL_BINS + i]
+            }
+            val input = OnnxTensor.createTensor(env, FloatBuffer.wrap(buf),
+                longArrayOf(1, RMVPE_MEL_BINS.toLong(), fcpeFrameSize.toLong()))
+            val result = sessions["fcpe"]!!.run(mapOf("mel" to input))
+            val out = (result.get("pitch").get() as OnnxTensor).floatBuffer
+            for (i in 0 until count) allPitch[start + i] = out.get(i)
+            input.close(); result.close()
+        }
+
+        return FloatArray(targetFrames) { i ->
+            val src = (i * totalFrames / targetFrames).coerceIn(0, allPitch.size - 1)
+            allPitch[src].coerceIn(0f, 1100f) // F0 范围限制
+        }
     }
 
     private fun rmvpeBinToFreq(bin: Int): Float {
