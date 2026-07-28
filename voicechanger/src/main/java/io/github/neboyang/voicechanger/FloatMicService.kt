@@ -53,13 +53,14 @@ class FloatMicService : Service() {
         var indexRateRef: Double = 0.0
         var indexPathRef: String? = null
         var protectRateRef: Double = 0.33
+        @Volatile var rvcRealtimeRunning: Boolean = false
         fun start(ctx: Context) { ctx.startForegroundService(Intent(ctx, FloatMicService::class.java)) }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, FloatMicService::class.java)) }
     }
 
     private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
         override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>?) {
-            if (isOurRecording) return
+            if (isOurRecording || rvcRealtimeRunning) return
             val active = configs?.any { it.clientAudioSource == MediaRecorder.AudioSource.MIC ||
                 it.clientAudioSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION } == true
             if (active) {

@@ -329,6 +329,7 @@ class MainActivity : AppCompatActivity() {
             rvcRealtime.isRunning.collect { running ->
                 btnRvcRealtime.text = if (running) "停止" else "开始 AI 实时变声"
                 tvStatus.text = if (running) "运行中…" else "就绪"
+                io.github.neboyang.voicechanger.FloatMicService.rvcRealtimeRunning = running
             }
         }
 
