@@ -259,7 +259,7 @@ class RVCOnnxEngine {
 
         try {
             val tTot = System.nanoTime()
-            val maxFrames = 300  // 匹配桌面 RVC 的 200 帧窗口
+            val maxFrames = 50  // 合并模型固定 50 帧
             val hop = 160
             val totalFrames = audio.size / hop
             val allOutput = mutableListOf<FloatArray>()

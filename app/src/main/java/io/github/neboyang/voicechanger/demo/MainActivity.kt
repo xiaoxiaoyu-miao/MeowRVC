@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRvcRealtime: MaterialButton
     private lateinit var btnFloat: MaterialButton
     private lateinit var btnCloud: MaterialButton
+    private lateinit var btnLocalConvert: MaterialButton
     private var currentModelDir: File? = null
     private var currentIndexPath: String? = null
 
@@ -65,6 +66,61 @@ class MainActivity : AppCompatActivity() {
         }
 
     private var cloudRvc: ReplicateCloudRvc? = null
+
+    private val localAudioPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null || currentModelDir == null) return@registerForActivityResult
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val input = contentResolver.openInputStream(uri) ?: return@launch
+                    val tmpFile = File(cacheDir, "local_input_${System.currentTimeMillis()}.wav")
+                    input.use { it.copyTo(tmpFile.outputStream()) }
+                    val bytes = tmpFile.readBytes()
+                    if (bytes.size < 44) { withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "无效 WAV", Toast.LENGTH_SHORT).show() }; return@launch }
+                    val sampleRate = java.nio.ByteBuffer.wrap(bytes, 24, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+                    val channels = java.nio.ByteBuffer.wrap(bytes, 22, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt()
+                    val dataOff = if (bytes[0] == 0x52.toByte()) 44 else 0
+                    val pcm = bytes.copyOfRange(dataOff, bytes.size)
+                    val floatPcm = FloatArray(pcm.size / 2) { java.nio.ByteBuffer.wrap(pcm, it * 2, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short / 32768f }
+                    val mono = if (channels == 1) floatPcm else FloatArray(floatPcm.size / 2) { (floatPcm[it * 2] + floatPcm[it * 2 + 1]) / 2f }
+                    val sr16k = if (sampleRate == 16000) mono else {
+                        val ratio = sampleRate.toDouble() / 16000
+                        FloatArray((mono.size / ratio).toInt().coerceAtLeast(1)) { mono[(it * ratio).toInt().coerceIn(0, mono.size - 1)] }
+                    }
+                    tmpFile.delete()
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "转换中...", Toast.LENGTH_SHORT).show() }
+                    val result = rvcRealtime.engine.infer(sr16k, rvcRealtime.f0UpKey)
+                    if (result != null) {
+                        val outFile = File("/sdcard/rvc", "converted_${System.currentTimeMillis()}.wav")
+                        outFile.parentFile?.mkdirs()
+                        io.github.neboyang.voicechanger.WavFile.write(outFile, result, rvcRealtime.engine.targetSr)
+                        withContext(Dispatchers.Main) { tvStatus.text = "已保存: ${outFile.name}"; Toast.makeText(this@MainActivity, "转换完成", Toast.LENGTH_LONG).show() }
+                    }
+                } catch (e: Exception) { withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "失败: ${e.message}", Toast.LENGTH_SHORT).show() } }
+            }
+        }
+
+    private val onnxPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val input = contentResolver.openInputStream(uri) ?: return@launch
+                    val tmpFile = File(cacheDir, "import_${System.currentTimeMillis()}.onnx")
+                    input.use { it.copyTo(tmpFile.outputStream()) }
+                    val info = modelManager.importModel(tmpFile.absolutePath)
+                    tmpFile.delete()
+                    if (info != null) {
+                        refreshModelList()
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "已导入: ${info.name}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show() }
+                }
+            }
+        }
 
     private val storageIntentLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refreshModelList() }
@@ -153,6 +209,7 @@ class MainActivity : AppCompatActivity() {
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnFloat = findViewById(R.id.btnFloat)
         btnCloud = findViewById(R.id.btnCloud)
+        btnLocalConvert = findViewById(R.id.btnLocalConvert)
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
         fun reloadWithBackend(mode: Int) {
@@ -281,9 +338,14 @@ class MainActivity : AppCompatActivity() {
             cloudRvc?.show(latest, cloudModelPicker)
         }
 
-        findViewById<MaterialButton>(R.id.btnRefreshModels).setOnClickListener {
+        btnLocalConvert.setOnClickListener {
+            if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            localAudioPicker.launch(arrayOf("audio/*"))
+        }
+
+        findViewById<MaterialButton>(R.id.btnImportOnnx).setOnClickListener {
             if (!checkStoragePermission()) { requestStoragePermission(); return@setOnClickListener }
-            refreshModelList()
+            onnxPicker.launch(arrayOf("*/*"))
         }
         findViewById<MaterialButton>(R.id.btnDeleteModel).setOnClickListener {
             val dir = currentModelDir ?: return@setOnClickListener
@@ -314,7 +376,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val ok = rvcRealtime.loadModel(dir)
             withContext(Dispatchers.Main) {
-                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
+                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; btnLocalConvert.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
                 else tvModelStatus.setText(R.string.rvc_model_failed)
             }
         }

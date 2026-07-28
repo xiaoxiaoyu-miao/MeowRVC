@@ -123,12 +123,12 @@
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnRefreshModels"
+                    android:id="@+id/btnImportOnnx"
                     style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="@string/rvc_refresh" />
+                    android:text="导入 ONNX 模型" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnDeleteModel"
@@ -323,6 +323,14 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="在线变声 (云端API)" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLocalConvert"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:enabled="false"
+                android:text="转换本地音频" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRvcRealtime"

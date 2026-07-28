@@ -1,18 +1,13 @@
 package io.github.neboyang.voicechanger
 
 import android.content.Context
+import android.content.res.AssetManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.FileOutputStream
-import java.net.URL
-import java.util.zip.ZipFile
 
-/**
- * Downloads and manages RVC model files.
- * Models are stored in context.filesDir/rvc_models/<modelId>/
- */
 class RVCModelManager(private val context: Context) {
 
     data class ModelInfo(
@@ -32,22 +27,54 @@ class RVCModelManager(private val context: Context) {
     private val _models = MutableStateFlow<List<ModelInfo>>(emptyList())
     val models: StateFlow<List<ModelInfo>> = _models
 
-    private val _downloadProgress = MutableStateFlow(0f)
-    val downloadProgress: StateFlow<Float> = _downloadProgress
-
     fun getModelDir(modelId: String): File = File(modelsDir, modelId)
 
-    fun isModelDownloaded(modelId: String): Boolean {
-        val dir = getModelDir(modelId)
-        return dir.exists() && File(dir, "config.json").exists()
+    fun isModelDownloaded(modelId: String): Boolean = File(modelsDir, modelId).exists()
+
+    /** 从 assets 复制基础模型 + 用户选择的 ONNX 到模型目录，生成 config.json */
+    fun importModel(onnxPath: String): ModelInfo? {
+        val onnxFile = File(onnxPath)
+        val modelName = onnxFile.nameWithoutExtension
+        val dir = File(modelsDir, modelName)
+        dir.mkdirs()
+
+        // 复制基础模型（assets 中提取）
+        try {
+            for (base in listOf("hubert.onnx", "rmvpe.onnx")) {
+                val target = File(dir, base)
+                if (!target.exists()) {
+                    context.assets.open("models/$base").use { input ->
+                        FileOutputStream(target).use { input.copyTo(it) }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            return null
+        }
+
+        // 复制用户选择的 ONNX
+        val targetOnnx = File(dir, onnxFile.name)
+        if (!targetOnnx.exists()) onnxFile.copyTo(targetOnnx, overwrite = true)
+
+        // 生成 config.json
+        val cfg = org.json.JSONObject().apply {
+            put("name", modelName)
+            put("version", "v2")
+            put("f0", true)
+            put("feat_dim", 768)
+            put("target_sr", 40000)
+        }
+        File(dir, "config.json").writeText(cfg.toString())
+
+        val info = ModelInfo(id = modelName, name = modelName)
+        // 刷新列表
+        scanLocalModels()
+        return info
     }
 
     fun scanLocalModels() {
-        if (!modelsDir.exists()) {
-            _models.value = emptyList()
-            return
-        }
-        val list = modelsDir.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
+        if (!modelsDir.exists()) { _models.value = emptyList(); return }
+        val list = modelsDir.listFiles()?.filter { it.isDirectory && File(it, "config.json").exists() }?.mapNotNull { dir ->
             val configFile = File(dir, "config.json")
             if (!configFile.exists()) return@mapNotNull null
             try {
@@ -70,63 +97,8 @@ class RVCModelManager(private val context: Context) {
         _models.value = list
     }
 
-    /**
-     * Download an RVC model pack from a URL.
-     * The ZIP should contain: hubert.mnn, rmvpe.mnn, text_encoder.mnn, flow.mnn,
-     * generator.mnn, config.json
-     */
-    suspend fun downloadModel(modelId: String, url: String) = withContext(Dispatchers.IO) {
-        val dir = getModelDir(modelId)
-        dir.mkdirs()
-
-        val zipFile = File(dir, "model.zip")
-        val urlConnection = URL(url).openConnection()
-        val totalBytes = urlConnection.contentLengthLong
-        val inputStream = urlConnection.getInputStream()
-        val outputStream = FileOutputStream(zipFile)
-        val buffer = ByteArray(8192)
-        var bytesRead: Int
-        var totalRead = 0L
-
-        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-            outputStream.write(buffer, 0, bytesRead)
-            totalRead += bytesRead
-            if (totalBytes > 0) {
-                _downloadProgress.value = totalRead.toFloat() / totalBytes
-            }
-        }
-        outputStream.close()
-        inputStream.close()
-
-        // Extract ZIP
-        ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().forEach { entry ->
-                val targetFile = File(dir, entry.name)
-                if (entry.isDirectory) {
-                    targetFile.mkdirs()
-                } else {
-                    targetFile.parentFile?.mkdirs()
-                    zip.getInputStream(entry).use { input ->
-                        FileOutputStream(targetFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-            }
-        }
-        zipFile.delete()
-        _downloadProgress.value = 1f
-        scanLocalModels()
-    }
-
     fun deleteModel(modelId: String) {
         getModelDir(modelId).deleteRecursively()
         scanLocalModels()
-    }
-
-    companion object {
-        // Default model source URLs (community models)
-        const val DEFAULT_MODEL_URL =
-            "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/"
     }
 }

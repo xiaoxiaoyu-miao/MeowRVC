@@ -29,9 +29,7 @@ class RVCRealtime {
 
     fun loadModel(modelDir: File): Boolean {
         modelLoaded = engine.load(modelDir)
-        if (modelLoaded) {
-            engine.startServer()
-        }
+        if (modelLoaded) engine.startServer()
         return modelLoaded
     }
 
@@ -55,60 +53,43 @@ class RVCRealtime {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 48).build()
+            .setBufferSizeInBytes(playBuf * 8).build()
 
         _isRunning.value = true
         record!!.startRecording()
         track!!.play()
 
-        // 录音线程：持续写入环形缓冲区（带重叠避免吞字）
         val rawLatencyMs = latencyMs.coerceIn(500, 10000)
         val accumSize = sr * rawLatencyMs / 1000
-        val overlapSize = accumSize / 4  // 25% 重叠
-        val ringBuf = ArrayBlockingQueue<FloatArray>(8)
-        val vadThreshold = 0.005f
-        val vadFrames = 120
+        val overlapSize = accumSize / 4
+        val ringBuf = ArrayBlockingQueue<FloatArray>(6)
 
+        // 录音线程（带重叠）
         recThread = Thread({
-            val shortBuf = ShortArray(4096)
-            val frameHop = 160
+            val buf = ShortArray(4096)
             var prevOverlap = FloatArray(0)
-
             while (_isRunning.value) {
                 val accum = FloatArray(accumSize)
                 var idx = 0
-                // 先复制上一块尾部重叠数据
-                for (i in prevOverlap.indices) accum[idx++] = prevOverlap[i]
-                var silenceCount = 0
-                var vadTrigger = false
-                while (idx < accumSize && _isRunning.value && !vadTrigger) {
-                    val read = record!!.read(shortBuf, 0, shortBuf.size)
+                for (s in prevOverlap) accum[idx++] = s
+                while (idx < accumSize && _isRunning.value) {
+                    val read = record!!.read(buf, 0, buf.size)
                     if (read <= 0) continue
-                    for (i in 0 until read) {
-                        if (idx < accumSize) accum[idx++] = shortBuf[i] / 32768f
-                    }
-                    if (idx >= (silenceCount + 1) * frameHop) {
-                        var energy = 0f
-                        val start = silenceCount * frameHop
-                        val end = minOf(start + frameHop, idx)
-                        for (i in start until end) energy += accum[i] * accum[i]
-                        energy = kotlin.math.sqrt(energy / (end - start))
-                        if (energy < vadThreshold) { silenceCount++; if (silenceCount >= vadFrames) vadTrigger = true }
-                        else silenceCount = 0
-                    }
+                    for (i in 0 until read) { if (idx < accumSize) accum[idx++] = buf[i] / 32768f }
                 }
-                // 保存尾部用于下一块重叠
-                val tailStart = (accum.size - overlapSize).coerceAtLeast(0)
-                prevOverlap = accum.copyOfRange(tailStart, accum.size)
+                val tail = (accum.size - overlapSize).coerceAtLeast(0)
+                prevOverlap = accum.copyOfRange(tail, accum.size)
                 if (_isRunning.value) ringBuf.put(accum)
             }
         }, "rvc-record")
 
-        // 推理+播放线程：从环形缓冲区读取并处理
+        // 推理+播放线程
         procThread = Thread({
+            var prevTail = ShortArray(0)
             while (_isRunning.value) {
                 val accum = ringBuf.take()
-                val inp = FloatArray(accum.size / 3) { accum[it * 3] }
+                // 3点平均降采样 48→16kHz
+                val inp = FloatArray(accum.size / 3) { (accum[it * 3] + accum[it * 3 + 1] + accum[it * 3 + 2]) / 3f }
                 try {
                     val result = engine.infer(inp, f0UpKey)
                     if (result != null && result.isNotEmpty()) {
@@ -116,11 +97,23 @@ class RVCRealtime {
                         val outShort = ShortArray(outLen)
                         val vol = engine.volume
                         for (i in 0 until outLen) {
-                            val si = ((i.toLong() * result.size) / outLen).toInt().coerceIn(0, result.size - 1)
-                            val s32 = ((result[si] * vol) * 32768f).toInt()
+                            val pos = (i.toDouble() * result.size) / outLen
+                            val si = pos.toInt().coerceIn(0, result.size - 2)
+                            val frac = (pos - si).toFloat()
+                            val s = result[si] * (1f - frac) + result[si + 1] * frac
+                            val s32 = ((s * vol) * 32768f).toInt()
                             outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                         }
-                        // 非阻塞写入，不影响录音
+                        // 与上一块尾部淡入淡出
+                        val fadeLen = minOf(prevTail.size, outShort.size, 768)
+                        for (i in 0 until fadeLen) {
+                            val a = prevTail[prevTail.size - fadeLen + i].toInt()
+                            val b = outShort[i].toInt()
+                            val f = (i.toFloat() / fadeLen)
+                            outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
+                        }
+                        prevTail = outShort.copyOfRange((outShort.size - 768).coerceAtLeast(0), outShort.size)
+
                         var written = 0
                         while (written < outShort.size && _isRunning.value) {
                             val w = track!!.write(outShort, written, outShort.size - written, AudioTrack.WRITE_NON_BLOCKING)
