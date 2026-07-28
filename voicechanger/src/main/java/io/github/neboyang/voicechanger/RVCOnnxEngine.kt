@@ -259,7 +259,7 @@ class RVCOnnxEngine {
 
         try {
             val tTot = System.nanoTime()
-            val maxFrames = 50
+            val maxFrames = 300  // 匹配桌面 RVC 的 200 帧窗口
             val hop = 160
             val totalFrames = audio.size / hop
             val allOutput = mutableListOf<FloatArray>()
@@ -460,11 +460,11 @@ class RVCOnnxEngine {
     // ──────────────────────────────────────────────
     private fun adaptiveNoiseGate(audio: FloatArray, thresholdDb: Double, sampleRate: Int): FloatArray {
         if (audio.isEmpty() || thresholdDb <= 0.0) return audio
-        val frameSize = (sampleRate / 100).coerceAtLeast(1)
+        val frameSize = (sampleRate / 50).coerceAtLeast(1) // 更大帧长减少抖动
         val output = FloatArray(audio.size)
         var gain = 1.0f
-        val att = 0.55f; val rel = 0.18f
-        val minGain = 0.035f
+        val att = 0.05f; val rel = 0.02f // 更慢攻击/释放防泵动
+        val minGain = 0.1f
         val kneeDb = 12.0
         var offset = 0
         while (offset < audio.size) {
@@ -494,8 +494,8 @@ class RVCOnnxEngine {
         var noiseFloorDb = 100.0
         var gain = 1.0f
         val output = FloatArray(audio.size)
-        val att = 0.55f; val rel = 0.18f
-        val minGain = 0.035f
+        val att = 0.05f; val rel = 0.02f
+        val minGain = 0.1f
         val marginDb = 8.0; val floorRise = 0.25
         val kneeDb = 12.0
         var offset = 0

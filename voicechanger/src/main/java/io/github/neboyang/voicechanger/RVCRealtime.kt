@@ -55,24 +55,30 @@ class RVCRealtime {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 4).build()
+            .setBufferSizeInBytes(playBuf * 48).build()
 
         _isRunning.value = true
         record!!.startRecording()
         track!!.play()
 
-        // 录音线程：持续写入环形缓冲区（带 VAD 提前结束）
-        val accumSize = sr * latencyMs / 1000
-        val ringBuf = ArrayBlockingQueue<FloatArray>(4)
-        val vadThreshold = 0.003f    // 静音阈值
-        val vadFrames = 15           // 连续多少帧静音视为停顿结束
+        // 录音线程：持续写入环形缓冲区（带重叠避免吞字）
+        val rawLatencyMs = latencyMs.coerceIn(500, 10000)
+        val accumSize = sr * rawLatencyMs / 1000
+        val overlapSize = accumSize / 4  // 25% 重叠
+        val ringBuf = ArrayBlockingQueue<FloatArray>(8)
+        val vadThreshold = 0.005f
+        val vadFrames = 120
 
         recThread = Thread({
             val shortBuf = ShortArray(4096)
-            val frameHop = 160       // 每帧样本数 @48kHz
+            val frameHop = 160
+            var prevOverlap = FloatArray(0)
+
             while (_isRunning.value) {
                 val accum = FloatArray(accumSize)
                 var idx = 0
+                // 先复制上一块尾部重叠数据
+                for (i in prevOverlap.indices) accum[idx++] = prevOverlap[i]
                 var silenceCount = 0
                 var vadTrigger = false
                 while (idx < accumSize && _isRunning.value && !vadTrigger) {
@@ -81,21 +87,19 @@ class RVCRealtime {
                     for (i in 0 until read) {
                         if (idx < accumSize) accum[idx++] = shortBuf[i] / 32768f
                     }
-                    // VAD：每 frameHop 样本检查一次能量
                     if (idx >= (silenceCount + 1) * frameHop) {
                         var energy = 0f
                         val start = silenceCount * frameHop
                         val end = minOf(start + frameHop, idx)
                         for (i in start until end) energy += accum[i] * accum[i]
                         energy = kotlin.math.sqrt(energy / (end - start))
-                        if (energy < vadThreshold) {
-                            silenceCount++
-                            if (silenceCount >= vadFrames) vadTrigger = true
-                        } else {
-                            silenceCount = 0
-                        }
+                        if (energy < vadThreshold) { silenceCount++; if (silenceCount >= vadFrames) vadTrigger = true }
+                        else silenceCount = 0
                     }
                 }
+                // 保存尾部用于下一块重叠
+                val tailStart = (accum.size - overlapSize).coerceAtLeast(0)
+                prevOverlap = accum.copyOfRange(tailStart, accum.size)
                 if (_isRunning.value) ringBuf.put(accum)
             }
         }, "rvc-record")
