@@ -34,5 +34,11 @@
             android:authorities="io.mo.glassmic.provider.pcm"
             android:exported="true"
             android:grantUriPermissions="true" />
+
+        <provider
+            android:name=".RuntimeProvider"
+            android:authorities="io.mo.glassmic.provider.runtime"
+            android:exported="true"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
