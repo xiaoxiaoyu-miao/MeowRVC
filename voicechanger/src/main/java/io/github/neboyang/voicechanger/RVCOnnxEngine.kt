@@ -78,6 +78,9 @@ class RVCOnnxEngine {
     /** F0 中值滤波半径 */
     var filterRadius: Int = 3
 
+    /** 是否使用 RMVPE（否则用自相关 F0） */
+    var useRmvpe: Boolean = true
+
     /** 索引路径 */
     var indexPath: String? = null
 
@@ -269,9 +272,9 @@ class RVCOnnxEngine {
                 val start = seg * maxFrames * hop
                 val segSamples = minOf(maxFrames * hop, audio.size - start)
                 if (segSamples < hop * 2) continue
-                val segAudio = audio.copyOfRange(start, start + segSamples)
-                val sl = minOf(segSamples / hop, maxFrames)
-                if (sl <= 0) continue
+                // 固定形状：补零到 maxFrames * hop，避免 NPU 反复重编译
+                val segAudio = FloatArray(maxFrames * hop) { i -> if (i < segSamples) audio[start + i] else 0f }
+                val sl = maxFrames  // 固定 50 帧
 
                 // HuBERT (auto-detect input format)
                 val tHu = System.nanoTime()

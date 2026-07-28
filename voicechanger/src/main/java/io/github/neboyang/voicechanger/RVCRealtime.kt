@@ -66,6 +66,7 @@ class RVCRealtime {
 
         // 录音线程（带重叠）
         recThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             val buf = ShortArray(4096)
             var prevOverlap = FloatArray(0)
             while (_isRunning.value) {
@@ -85,6 +86,7 @@ class RVCRealtime {
 
         // 推理+播放线程
         procThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             var prevTail = ShortArray(0)
             while (_isRunning.value) {
                 val accum = ringBuf.take()
