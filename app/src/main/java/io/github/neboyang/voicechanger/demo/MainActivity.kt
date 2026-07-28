@@ -186,15 +186,12 @@ class MainActivity : AppCompatActivity() {
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
             rvcRealtime.f0UpKey = value.toInt(); settings.save("f0UpKey", value.toInt())
-            settings.save("f0UpKey", value.toInt())
         }
-        tvF0Key.text = getString(R.string.rvc_f0_key, 0)
 
         sliderLatency.addOnChangeListener { _, value, _ ->
             tvLatency.text = getString(R.string.rvc_latency, value)
             rvcRealtime.latencyMs = (value * 1000).toInt(); settings.save("latency", value)
         }
-        tvLatency.text = getString(R.string.rvc_latency, 1.0)
 
         sliderNoise.addOnChangeListener { _, value, _ ->
             val level = value.toInt()
@@ -202,7 +199,6 @@ class MainActivity : AppCompatActivity() {
             rvcRealtime.engine.noiseLevel = level; settings.save("noiseLevel", level)
             io.github.neboyang.voicechanger.FloatMicService.noiseLevelRef = level
         }
-        tvNoise.text = getString(R.string.rvc_noise, 0)
 
         sliderEq.addOnChangeListener { _, value, _ ->
             val level = value.toInt()
@@ -210,21 +206,18 @@ class MainActivity : AppCompatActivity() {
             rvcRealtime.engine.eqLevel = level; settings.save("eqLevel", level)
             io.github.neboyang.voicechanger.FloatMicService.eqLevelRef = level
         }
-        tvEq.text = getString(R.string.rvc_eq, 0)
 
         sliderProtect.addOnChangeListener { _, value, _ ->
             tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(value))
             rvcRealtime.engine.protectRate = value.toDouble(); settings.save("protectRate", value)
             FloatMicService.protectRateRef = value.toDouble()
         }
-        tvProtect.text = getString(R.string.rvc_protect, "0.33")
 
         sliderNoiseGate.addOnChangeListener { _, value, _ ->
             tvNoiseGate.text = "降噪门控: ${value.toInt()}dB"
             rvcRealtime.engine.noiseGateDb = value.toDouble(); settings.save("noiseGateDb", value)
             FloatMicService.noiseGateDbRef = value.toDouble()
         }
-        tvNoiseGate.text = "降噪门控: 0dB"
 
         switchDenoise.setOnCheckedChangeListener { _, checked ->
             rvcRealtime.engine.outputDenoiseEnabled = checked; settings.save("outputDenoise", checked)
