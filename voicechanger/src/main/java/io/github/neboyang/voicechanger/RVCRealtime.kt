@@ -56,7 +56,7 @@ class RVCRealtime {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 8).build()
+            .setBufferSizeInBytes(playBuf * 32).build()  // 大缓冲防下溢
 
         _isRunning.value = true
         record!!.startRecording()
@@ -129,12 +129,7 @@ class RVCRealtime {
                             continue
                         }
 
-                        var written = 0
-                        while (written < outShort.size && _isRunning.value) {
-                            val w = track!!.write(outShort, written, outShort.size - written, AudioTrack.WRITE_NON_BLOCKING)
-                            if (w > 0) written += w
-                            else Thread.sleep(5)
-                        }
+                        track!!.write(outShort, 0, outShort.size)
                         lastPlayMs = System.currentTimeMillis()
                     }
                 } catch (e: Exception) { onError?.invoke(e) }
