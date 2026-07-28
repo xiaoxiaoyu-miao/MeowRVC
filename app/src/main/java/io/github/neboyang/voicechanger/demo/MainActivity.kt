@@ -317,13 +317,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnRvcRealtime.setOnClickListener {
-            if (rvcRealtime.isRunning.value) rvcRealtime.stop()
-            else {
-                if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-                rvcRealtime.onError = { t -> runOnUiThread { Toast.makeText(this, "错误: ${t.message}", Toast.LENGTH_LONG).show() } }
-                withRecordPermission { rvcRealtime.start() }
-            }
+            if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            // 直接触发 FloatMicService 录音→VAD自动停止→RVC→外放
+            val intent = Intent(this, io.github.neboyang.voicechanger.FloatMicService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
         }
+
+        btnRvcRealtime.text = "快速变声（录音→自动→外放）"
 
         lifecycleScope.launch {
             rvcRealtime.isRunning.collect { running ->
