@@ -51,7 +51,7 @@ class RVCOnnxEngine {
     fun getAvailableBackends(): List<Pair<Int, String>> {
         val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
         val list = mutableListOf<Pair<Int, String>>()
-        if (available.any { "qnn" in it.lowercase() || "nnapi" in it.lowercase() }) list.add(2 to "NPU")
+        if (available.any { "nnapi" in it.lowercase() }) list.add(2 to "NPU")
         if (available.any { "xnnpack" in it.lowercase() }) list.add(1 to "加速CPU")
         list.add(0 to "CPU")
         return list
@@ -130,7 +130,6 @@ class RVCOnnxEngine {
                 1 -> if (available.any { "xnnpack" in it.lowercase() }) "XnnpackExecutionProvider,CPUExecutionProvider" else "CPUExecutionProvider"
                 else -> {
                     buildString {
-                        if (available.any { "qnn" in it.lowercase() }) append("QnnExecutionProvider,")
                         if (available.any { "nnapi" in it.lowercase() }) append("NnapiExecutionProvider,")
                         if (available.any { "xnnpack" in it.lowercase() }) append("XnnpackExecutionProvider,")
                         append("CPUExecutionProvider")
@@ -259,6 +258,7 @@ class RVCOnnxEngine {
         }
 
         try {
+            val tTot = System.nanoTime()
             val maxFrames = 50
             val hop = 160
             val totalFrames = audio.size / hop
@@ -406,6 +406,7 @@ class RVCOnnxEngine {
             val output = applyOutputProcessing(result)
             val vol = volume.coerceIn(0f, 1f)
             if (vol < 1f) { for (i in output.indices) output[i] *= vol }
+            Log.e("RVC", "  total ${(System.nanoTime()-tTot)/1_000_000}ms")
             return output
         } catch (e: Exception) {
             Log.e("RVC", "Infer failed", e)
@@ -841,8 +842,7 @@ class RVCOnnxEngine {
             1 -> if (available.any { "xnnpack" in it.lowercase() }) "XNNPACK" else "CPU"
             else -> {
                 when {
-                    available.any { "qnn" in it.lowercase() } -> "QNN (NPU)"
-                    available.any { "nnapi" in it.lowercase() } -> "NNAPI"
+                    available.any { "nnapi" in it.lowercase() } -> "NNAPI (NPU)"
                     available.any { "xnnpack" in it.lowercase() } -> "XNNPACK"
                     else -> "CPU"
                 }
