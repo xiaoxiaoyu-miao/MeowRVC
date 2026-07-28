@@ -31,6 +31,7 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
     private lateinit var modelManager: RVCModelManager
     private val rvcRealtime = RVCRealtime()
+    private lateinit var settings: SettingsManager
     private lateinit var tvStatus: TextView
     private lateinit var tvModelStatus: TextView
     private lateinit var tvF0Key: TextView
@@ -85,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         modelManager = RVCModelManager(this)
+        settings = SettingsManager(this)
 
         // 启动时请求所有必要权限
         requestAllPermissions()
@@ -110,13 +112,35 @@ class MainActivity : AppCompatActivity() {
         sliderIndexRate = findViewById(R.id.sliderIndexRate)
         switchDenoise = findViewById(R.id.switchDenoise)
         switchVocalRange = findViewById(R.id.switchVocalRange)
+
+        // 恢复保存的设置
+        val saved = settings.loadSettings()
+        rvcRealtime.engine.backendMode = saved.backendMode
+        sliderF0Key.value = saved.f0UpKey.toFloat()
+        sliderProtect.value = saved.protectRate
+        sliderLatency.value = saved.latency
+        sliderNoise.value = saved.noiseLevel.toFloat()
+        sliderEq.value = saved.eqLevel.toFloat()
+        sliderNoiseGate.value = saved.noiseGateDb
+        switchDenoise.isChecked = saved.outputDenoise
+        switchVocalRange.isChecked = saved.vocalRangeFilter
+        sliderIndexRate.value = saved.indexRate
+        rvcRealtime.engine.filterRadius = saved.filterRadius
+        rvcRealtime.engine.volume = saved.volume
+        tvF0Key.text = getString(R.string.rvc_f0_key, saved.f0UpKey)
+        tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(saved.protectRate))
+        tvLatency.text = getString(R.string.rvc_latency, saved.latency)
+        tvNoise.text = getString(R.string.rvc_noise, saved.noiseLevel)
+        tvEq.text = getString(R.string.rvc_eq, saved.eqLevel)
+        tvNoiseGate.text = "降噪门控: ${saved.noiseGateDb.toInt()}dB"
+        tvIndexRate.text = "索引融合: %.2f".format(saved.indexRate)
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnFloat = findViewById(R.id.btnFloat)
         btnCloud = findViewById(R.id.btnCloud)
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
         fun reloadWithBackend(mode: Int) {
-            rvcRealtime.engine.backendMode = mode
+            rvcRealtime.engine.backendMode = mode; settings.save("backendMode", mode)
             android.util.Log.e("RVC", "Backend switch to mode=$mode")
             val dir = currentModelDir ?: return
             lifecycleScope.launch(Dispatchers.IO) {
@@ -145,21 +169,21 @@ class MainActivity : AppCompatActivity() {
 
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
-            rvcRealtime.f0UpKey = value.toInt()
-            io.github.neboyang.voicechanger.FloatMicService.f0UpKeyRef = value.toInt()
+            rvcRealtime.f0UpKey = value.toInt(); settings.save("f0UpKey", value.toInt())
+            settings.save("f0UpKey", value.toInt())
         }
         tvF0Key.text = getString(R.string.rvc_f0_key, 0)
 
         sliderLatency.addOnChangeListener { _, value, _ ->
             tvLatency.text = getString(R.string.rvc_latency, value)
-            rvcRealtime.latencyMs = (value * 1000).toInt()
+            rvcRealtime.latencyMs = (value * 1000).toInt(); settings.save("latency", value)
         }
         tvLatency.text = getString(R.string.rvc_latency, 1.0)
 
         sliderNoise.addOnChangeListener { _, value, _ ->
             val level = value.toInt()
             tvNoise.text = getString(R.string.rvc_noise, level)
-            rvcRealtime.engine.noiseLevel = level
+            rvcRealtime.engine.noiseLevel = level; settings.save("noiseLevel", level)
             io.github.neboyang.voicechanger.FloatMicService.noiseLevelRef = level
         }
         tvNoise.text = getString(R.string.rvc_noise, 0)
@@ -167,38 +191,38 @@ class MainActivity : AppCompatActivity() {
         sliderEq.addOnChangeListener { _, value, _ ->
             val level = value.toInt()
             tvEq.text = getString(R.string.rvc_eq, level)
-            rvcRealtime.engine.eqLevel = level
+            rvcRealtime.engine.eqLevel = level; settings.save("eqLevel", level)
             io.github.neboyang.voicechanger.FloatMicService.eqLevelRef = level
         }
         tvEq.text = getString(R.string.rvc_eq, 0)
 
         sliderProtect.addOnChangeListener { _, value, _ ->
             tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(value))
-            rvcRealtime.engine.protectRate = value.toDouble()
+            rvcRealtime.engine.protectRate = value.toDouble(); settings.save("protectRate", value)
             FloatMicService.protectRateRef = value.toDouble()
         }
         tvProtect.text = getString(R.string.rvc_protect, "0.33")
 
         sliderNoiseGate.addOnChangeListener { _, value, _ ->
             tvNoiseGate.text = "降噪门控: ${value.toInt()}dB"
-            rvcRealtime.engine.noiseGateDb = value.toDouble()
+            rvcRealtime.engine.noiseGateDb = value.toDouble(); settings.save("noiseGateDb", value)
             FloatMicService.noiseGateDbRef = value.toDouble()
         }
         tvNoiseGate.text = "降噪门控: 0dB"
 
         switchDenoise.setOnCheckedChangeListener { _, checked ->
-            rvcRealtime.engine.outputDenoiseEnabled = checked
+            rvcRealtime.engine.outputDenoiseEnabled = checked; settings.save("outputDenoise", checked)
             FloatMicService.outputDenoiseRef = checked
         }
 
         switchVocalRange.setOnCheckedChangeListener { _, checked ->
-            rvcRealtime.engine.vocalRangeFilterEnabled = checked
+            rvcRealtime.engine.vocalRangeFilterEnabled = checked; settings.save("vocalRangeFilter", checked)
             FloatMicService.vocalRangeFilterRef = checked
         }
 
         sliderIndexRate.addOnChangeListener { _, value, _ ->
             tvIndexRate.text = "索引融合: %.2f".format(value)
-            rvcRealtime.engine.indexRate = value.toDouble()
+            rvcRealtime.engine.indexRate = value.toDouble(); settings.save("indexRate", value)
             FloatMicService.indexRateRef = value.toDouble()
         }
         tvIndexRate.text = "索引融合: 0.00"
