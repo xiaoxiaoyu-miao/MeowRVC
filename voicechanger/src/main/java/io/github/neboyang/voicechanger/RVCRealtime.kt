@@ -55,33 +55,51 @@ class RVCRealtime {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 8).build()
+            .setBufferSizeInBytes(playBuf * 16).build()
 
         _isRunning.value = true
         record!!.startRecording()
         track!!.play()
 
+        // 双缓冲：读缓冲和写缓冲交替，避免推理时丢数据
+        val bufCount = 3
+        val bufSize = sr * latencyMs / 1000
+        val bufs = Array(bufCount) { FloatArray(bufSize) }
+        var fillIdx = 0
+        var procIdx = -1
+        var readIdx = 0
+        val lock = Object()
+
         captureThread = Thread({
-            val accumSize = sr * latencyMs / 1000
-            val accum = FloatArray(accumSize)
-            var idx = 0
             val shortBuf = ShortArray(4096)
+            val outBufs = Array(bufCount) { ShortArray(0) }
 
             while (_isRunning.value) {
-                val read = record!!.read(shortBuf, 0, shortBuf.size)
-                if (read <= 0) continue
-                for (i in 0 until read) { if (idx < accum.size) accum[idx++] = shortBuf[i] / 32768f }
-                if (idx >= accum.size) {
-                    idx = 0
+                // 填充满当前缓冲
+                var filled = false
+                while (fillIdx < bufs.size && !filled) {
+                    val read = record!!.read(shortBuf, 0, shortBuf.size)
+                    if (read <= 0) continue
+                    for (i in 0 until read) {
+                        if (readIdx < bufs[fillIdx].size) {
+                            bufs[fillIdx][readIdx++] = shortBuf[i] / 32768f
+                        }
+                    }
+                    if (readIdx >= bufs[fillIdx].size) {
+                        readIdx = 0
+                        procIdx = fillIdx
+                        fillIdx++
+                        filled = true
+                    }
+                }
+
+                // 处理已满的缓冲
+                if (procIdx >= 0 && procIdx < bufs.size) {
+                    val inp = FloatArray(bufs[procIdx].size / 3) { bufs[procIdx][it * 3] }
                     try {
-                        val inp = FloatArray(accum.size / 3) { accum[it * 3] }
                         val result = engine.infer(inp, f0UpKey)
                         if (result != null && result.isNotEmpty()) {
-                            // 反馈抑制：输出后清空前段累积（打断声学反馈环路）
-                            val feedbackGuard = accum.size / 2
-                            for (i in 0 until feedbackGuard) accum[i] = 0f
-
-                            val outLen = result.size * 48 / 40
+                            val outLen = (result.size * 48 / 40).coerceAtMost(bufs[procIdx].size)
                             val outShort = ShortArray(outLen)
                             val vol = engine.volume
                             for (i in 0 until outLen) {
@@ -89,9 +107,19 @@ class RVCRealtime {
                                 val s32 = ((result[si] * vol) * 32768f).toInt()
                                 outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                             }
-                            track!!.write(outShort, 0, outShort.size)
+                            outBufs[procIdx] = outShort
                         }
                     } catch (e: Exception) { onError?.invoke(e) }
+                    if (fillIdx >= bufs.size) fillIdx = 0
+                    procIdx = -1
+                }
+
+                // 播放上一轮已处理好的缓冲
+                for (i in 0 until bufs.size) {
+                    if (outBufs[i].isNotEmpty()) {
+                        track!!.write(outBufs[i], 0, outBufs[i].size)
+                        outBufs[i] = ShortArray(0)
+                    }
                 }
             }
         }, "rvc-realtime")
