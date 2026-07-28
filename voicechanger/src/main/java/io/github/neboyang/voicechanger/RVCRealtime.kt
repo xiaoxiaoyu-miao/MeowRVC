@@ -33,9 +33,6 @@ class RVCRealtime {
         return modelLoaded
     }
 
-    /** 反馈抑制：记录播放时间戳，录音时跳过自身外放 */
-    @Volatile private var lastPlayMs = 0L
-
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
         if (!modelLoaded) { onError?.invoke(java.lang.IllegalStateException("Model not loaded")); return }
@@ -56,20 +53,17 @@ class RVCRealtime {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 32).build()  // 大缓冲防下溢
+            .setBufferSizeInBytes(playBuf * 48).build()
 
         _isRunning.value = true
         record!!.startRecording()
+        track!!.play()
 
-        val rawLatencyMs = latencyMs.coerceIn(500, 10000)
+        val rawLatencyMs = latencyMs.coerceAtLeast(500)
         val accumSize = sr * rawLatencyMs / 1000
         val overlapSize = accumSize / 4
         val ringBuf = ArrayBlockingQueue<FloatArray>(6)
 
-        // 预填两帧缓冲再开始播放，避免开头声音小
-        var bufferedChunks = 0
-
-        // 录音线程（带重叠）
         recThread = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             val buf = ShortArray(4096)
@@ -89,13 +83,11 @@ class RVCRealtime {
             }
         }, "rvc-record")
 
-        // 推理+播放线程
         procThread = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             var prevTail = ShortArray(0)
             while (_isRunning.value) {
                 val accum = ringBuf.take()
-                // 3点平均降采样 48→16kHz
                 val inp = FloatArray(accum.size / 3) { (accum[it * 3] + accum[it * 3 + 1] + accum[it * 3 + 2]) / 3f }
                 try {
                     val result = engine.infer(inp, f0UpKey)
@@ -111,7 +103,6 @@ class RVCRealtime {
                             val s32 = ((s * vol) * 32768f).toInt()
                             outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                         }
-                        // 与上一块尾部淡入淡出（加大到 2048 点 ≈ 43ms）
                         val fadeLen = minOf(prevTail.size, outShort.size, 2048)
                         for (i in 0 until fadeLen) {
                             val a = prevTail[prevTail.size - fadeLen + i].toInt()
@@ -120,17 +111,7 @@ class RVCRealtime {
                             outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
                         }
                         prevTail = outShort.copyOfRange((outShort.size - 2048).coerceAtLeast(0), outShort.size)
-
-                        // 预填 2 帧后再播放，避免开头音量小
-                        if (bufferedChunks < 2) {
-                            track!!.write(outShort, 0, outShort.size)
-                            bufferedChunks++
-                            if (bufferedChunks == 2) track!!.play()
-                            continue
-                        }
-
                         track!!.write(outShort, 0, outShort.size)
-                        lastPlayMs = System.currentTimeMillis()
                     }
                 } catch (e: Exception) { onError?.invoke(e) }
             }
