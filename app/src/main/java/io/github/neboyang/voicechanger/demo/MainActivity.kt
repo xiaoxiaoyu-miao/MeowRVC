@@ -238,24 +238,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "悬浮窗已启动", Toast.LENGTH_SHORT).show()
         }
 
-        // LSP模式：启动RVC音源→PCM管道→目标App接收变声音频
+        // LSP模式：屏蔽系统麦克风，需配合悬浮窗外放使用
         var lspRunning = false
         btnLsp.setOnClickListener {
             if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
             lspRunning = !lspRunning
-            if (lspRunning) {
-                rvcRealtime.engine.let { engine ->
-                    GlamicBridge.start(engine, rvcRealtime.f0UpKey)
-                }
-                RvcActive.set(true)
-                btnLsp.text = "停止LSP模式"
-                tvLspStatus.text = "变声已注入，目标App收到的是变声后的声音"
-            } else {
-                GlamicBridge.stop()
-                RvcActive.set(false)
-                btnLsp.text = "开始LSP模式"
-                tvLspStatus.text = "已停止"
-            }
+            RvcActive.set(lspRunning)
+            btnLsp.text = if (lspRunning) "停止LSP模式" else "开始LSP模式"
+            tvLspStatus.text = if (lspRunning) "系统麦克风已屏蔽，启动悬浮窗外放变声" else ""
         }
 
         findViewById<MaterialButton>(R.id.btnRefreshModels).setOnClickListener {
