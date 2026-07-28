@@ -51,8 +51,7 @@ class RVCOnnxEngine {
     fun getAvailableBackends(): List<Pair<Int, String>> {
         val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
         val list = mutableListOf<Pair<Int, String>>()
-        if ("QnnExecutionProvider" in available) list.add(2 to "NPU(QNN)")
-        if ("NnapiExecutionProvider" in available) list.add(2 to "NPU(NNAPI)")
+        if ("QnnExecutionProvider" in available || "NnapiExecutionProvider" in available) list.add(2 to "NPU")
         if ("XnnpackExecutionProvider" in available) list.add(1 to "加速CPU")
         list.add(0 to "CPU")
         return list
@@ -837,6 +836,7 @@ class RVCOnnxEngine {
     // ──────────────────────────────────────────────
     private fun detectActualBackend(modelDir: File): String {
         val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
+        Log.e("RVC", "Available providers: $available")
         val result = when (backendMode) {
             0 -> "CPU"
             1 -> if ("XnnpackExecutionProvider" in available) "XNNPACK" else "CPU"

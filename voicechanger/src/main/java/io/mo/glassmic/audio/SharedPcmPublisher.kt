@@ -16,7 +16,8 @@ class SharedPcmPublisher {
         val sampleRate: Int,
         val channels: Int,
         val fd: ParcelFileDescriptor,
-        val out: FileOutputStream
+        val out: FileOutputStream,
+        val converter: Pcm16Converter
     )
 
     private val consumers = ConcurrentHashMap<String, Consumer>()
@@ -33,7 +34,15 @@ class SharedPcmPublisher {
     fun attachConsumer(sampleRate: Int, channels: Int, writeFd: ParcelFileDescriptor) {
         val id = "consumer-${System.identityHashCode(writeFd)}"
         val fos = FileOutputStream(writeFd.fileDescriptor)
-        consumers[id] = Consumer(sampleRate, channels, writeFd, fos)
+        val safeSr = sampleRate.coerceAtLeast(8000)
+        val safeCh = channels.coerceAtLeast(1)
+        val converter = Pcm16Converter(
+            sourceSampleRate = 48000,
+            sourceChannels = 1,
+            targetSampleRate = safeSr,
+            targetChannels = safeCh
+        )
+        consumers[id] = Consumer(safeSr, safeCh, writeFd, fos, converter)
         startWriter()
     }
 
@@ -51,10 +60,12 @@ class SharedPcmPublisher {
             writerStarted = true
         }
         scope.launch(Dispatchers.IO) {
-            val frame = ByteBuffer.allocate(4096)
+            val frame = ByteBuffer.allocate(8192)
+            var nextSendAt = System.currentTimeMillis()
             while (isActive) {
                 if (consumers.isEmpty()) {
                     delay(50)
+                    nextSendAt = System.currentTimeMillis()
                     continue
                 }
                 frame.clear()
@@ -70,13 +81,21 @@ class SharedPcmPublisher {
                 frame.get(data)
                 for ((id, consumer) in consumers) {
                     try {
-                        consumer.out.write(data)
-                        consumer.out.flush()
+                        val converted = consumer.converter.convert(data)
+                        if (converted.isNotEmpty()) {
+                            consumer.out.write(converted)
+                            consumer.out.flush()
+                        }
                     } catch (e: Exception) {
                         detach(id)
                     }
                 }
-                delay((n * 1000L) / (48000 * 2)) // pace at real-time rate
+                val frameMs = (n.toLong() * 1000L + 96000 - 1) / 96000
+                nextSendAt += frameMs
+                val now = System.currentTimeMillis()
+                val sleep = nextSendAt - now
+                if (sleep > 0) delay(sleep)
+                else if (sleep < -200) nextSendAt = now
             }
         }
     }
