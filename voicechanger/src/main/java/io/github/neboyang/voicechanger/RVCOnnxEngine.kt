@@ -262,7 +262,7 @@ class RVCOnnxEngine {
 
         try {
             val tTot = System.nanoTime()
-            val maxFrames = 64  // NPU 需要 32 的倍数
+            val maxFrames = 128  // 32 倍数，NPU 友好
             val hop = 160
             val totalFrames = audio.size / hop
             val allOutput = mutableListOf<FloatArray>()
@@ -334,17 +334,13 @@ class RVCOnnxEngine {
 
                 if (isCombinedModel) {
                     val tVc = System.nanoTime()
-                    // 合并模型固定 50 帧，从 sl（64）降采样
-                    val mf = 50
-                    val idx = IntArray(mf) { it * sl / mf }
-                    val phone50 = FloatArray(mf * FEAT_DIM) { i -> blended[idx[i / FEAT_DIM] * FEAT_DIM + i % FEAT_DIM] }
-                    val pitchMel = idx.map { melToCoarse(shiftedPitchf[it]) }.toLongArray()
-                    val nsff0_50 = FloatArray(mf) { shiftedPitchf[idx[it]] }
+                    val pitchMel = shiftedPitchf.map { hz -> melToCoarse(hz) }.toLongArray()
                     val inputs = linkedMapOf<String, OnnxTensor>(
-                        "phone" to OnnxTensor.createTensor(env, FloatBuffer.wrap(phone50), longArrayOf(1, mf.toLong(), FEAT_DIM.toLong())),
-                        "phone_lengths" to OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(mf.toLong())), longArrayOf(1)),
-                        "pitch" to OnnxTensor.createTensor(env, LongBuffer.wrap(pitchMel), longArrayOf(1, mf.toLong())),
-                        "nsff0" to OnnxTensor.createTensor(env, FloatBuffer.wrap(nsff0_50), longArrayOf(1, mf.toLong())),
+                        "phone" to OnnxTensor.createTensor(env, FloatBuffer.wrap(blended),
+                            longArrayOf(1, sl.toLong(), FEAT_DIM.toLong())),
+                        "phone_lengths" to OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(sl.toLong())), longArrayOf(1)),
+                        "pitch" to OnnxTensor.createTensor(env, LongBuffer.wrap(pitchMel), longArrayOf(1, sl.toLong())),
+                        "nsff0" to OnnxTensor.createTensor(env, FloatBuffer.wrap(shiftedPitchf), longArrayOf(1, sl.toLong())),
                         "sid" to OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(0L)), longArrayOf(1)),
                     )
                     val vcOut = sessions["voice"]!!.run(inputs)
