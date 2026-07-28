@@ -61,6 +61,8 @@ dependencies {
     api(libs.kotlinx.coroutines.android)
     api(libs.androidx.annotation)
     api(libs.onnxruntime.android)
+    compileOnly(libs.libxposed.api)
+    implementation(libs.shadowhook)
     testImplementation(libs.junit)
 }
 

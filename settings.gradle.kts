@@ -27,5 +27,3 @@ dependencyResolutionManagement {
 rootProject.name = "VoiceChanger"
 include(":voicechanger")
 include(":app")
-include(":glamic-core")
-include(":glamic-xposed")
