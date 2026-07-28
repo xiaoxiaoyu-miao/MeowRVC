@@ -109,15 +109,15 @@ class RVCRealtime {
                             val s32 = ((s * vol) * 32768f).toInt()
                             outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                         }
-                        // 与上一块尾部淡入淡出
-                        val fadeLen = minOf(prevTail.size, outShort.size, 768)
+                        // 与上一块尾部淡入淡出（加大到 2048 点 ≈ 43ms）
+                        val fadeLen = minOf(prevTail.size, outShort.size, 2048)
                         for (i in 0 until fadeLen) {
                             val a = prevTail[prevTail.size - fadeLen + i].toInt()
                             val b = outShort[i].toInt()
                             val f = (i.toFloat() / fadeLen)
                             outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
                         }
-                        prevTail = outShort.copyOfRange((outShort.size - 768).coerceAtLeast(0), outShort.size)
+                        prevTail = outShort.copyOfRange((outShort.size - 2048).coerceAtLeast(0), outShort.size)
 
                         var written = 0
                         while (written < outShort.size && _isRunning.value) {

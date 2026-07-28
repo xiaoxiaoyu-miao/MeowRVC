@@ -262,7 +262,7 @@ class RVCOnnxEngine {
 
         try {
             val tTot = System.nanoTime()
-            val maxFrames = 128  // 32 倍数，NPU 友好
+            val maxFrames = 64  // 32 倍数，NPU 友好
             val hop = 160
             val totalFrames = audio.size / hop
             val allOutput = mutableListOf<FloatArray>()
