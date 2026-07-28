@@ -32,41 +32,53 @@ class RVCModelManager(private val context: Context) {
     /** 使用 DownloadManager 下载基础模型（通知栏可见） */
     private suspend fun ensureBaseModels(modelDir: File): Boolean = withContext(Dispatchers.IO) {
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val urls = mapOf(
-            "hubert.onnx" to "https://github.com/Sharl210/ultimate-rvc-mobile/releases/download/v2.0.0/hubert.onnx",
-            "rmvpe.onnx" to "https://github.com/Sharl210/ultimate-rvc-mobile/releases/download/v2.0.0/rmvpe.onnx"
+        val urlGroups = listOf(
+            "hubert.onnx" to listOf(
+                "https://hf-mirror.com/spaces/14-26AA/sovits_aishell3/resolve/37fd30fd9498eb3ebd87a110f90fc447af6d8f45/hubert.onnx",
+                "https://huggingface.co/spaces/14-26AA/sovits_aishell3/resolve/37fd30fd9498eb3ebd87a110f90fc447af6d8f45/hubert.onnx",
+            ),
+            "rmvpe.onnx" to listOf(
+                "https://hf-mirror.com/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx",
+                "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx",
+            )
         )
-        for ((name, url) in urls) {
+        for ((name, urls) in urlGroups) {
             val target = File(modelDir, name)
             if (target.exists() && target.length() > 100_000_000) continue
             _downloadStatus.value = "下载 $name..."
             val dest = File(context.getExternalFilesDir(null), "base_models/$name")
             dest.parentFile?.mkdirs()
-            val req = DownloadManager.Request(Uri.parse(url))
-                .setTitle("MeowRVC - $name")
-                .setDescription("RVC 基础模型")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationUri(Uri.fromFile(dest))
-                .setAllowedOverMetered(true).setAllowedOverRoaming(true)
-            val id = dm.enqueue(req)
-            var prevPct = 0
-            while (true) {
-                var done = false; var failed = false
-                dm.query(Query().setFilterById(id)).use { c ->
-                    if (c.moveToFirst()) {
-                        val s = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS))
-                        val dl = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                        val total = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                        val pct = if (total > 0) (dl * 100 / total).toInt() else 0
-                        if (pct > prevPct) { prevPct = pct; _downloadProgress.value = dl.toFloat() / total.coerceAtLeast(1); _downloadStatus.value = "$name $pct%" }
-                        if (s == DownloadManager.STATUS_SUCCESSFUL) { dest.copyTo(target, overwrite = true); dest.delete(); done = true }
-                        if (s == DownloadManager.STATUS_FAILED) { _downloadStatus.value = "下载失败"; failed = true }
+            var success = false
+            for (url in urls) {
+                if (success) break
+                try {
+                    val req = DownloadManager.Request(Uri.parse(url))
+                        .setTitle("MeowRVC - $name")
+                        .setDescription("RVC 基础模型")
+                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        .setDestinationUri(Uri.fromFile(dest))
+                        .setAllowedOverMetered(true).setAllowedOverRoaming(true)
+                    val id = dm.enqueue(req)
+                    var prevPct = 0
+                    while (true) {
+                        var done = false; var failed = false
+                        dm.query(Query().setFilterById(id)).use { c ->
+                            if (c.moveToFirst()) {
+                                val s = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS))
+                                val dl = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                                val total = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                                val pct = if (total > 0) (dl * 100 / total).toInt() else 0
+                                if (pct > prevPct) { prevPct = pct; _downloadProgress.value = dl.toFloat() / total.coerceAtLeast(1); _downloadStatus.value = "$name $pct%" }
+                                if (s == DownloadManager.STATUS_SUCCESSFUL) { dest.copyTo(target, overwrite = true); dest.delete(); success = true; done = true }
+                                if (s == DownloadManager.STATUS_FAILED) { failed = true }
+                            }
+                        }
+                        if (done || failed) break
+                        delay(1000)
                     }
-                }
-                if (failed) return@withContext false
-                if (done) break
-                delay(1000)
+                } catch (_: Exception) {}
             }
+            if (!success) { _downloadStatus.value = "下载失败"; return@withContext false }
         }
         _downloadProgress.value = 1f; _downloadStatus.value = "就绪"
         true
