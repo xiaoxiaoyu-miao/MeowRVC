@@ -680,7 +680,17 @@ class RVCOnnxEngine {
                 longArrayOf(1, RMVPE_MEL_BINS.toLong(), fcpeFrameSize.toLong()))
             val result = sessions["fcpe"]!!.run(mapOf("mel" to input))
             val out = (result.get("pitch").get() as OnnxTensor).floatBuffer
-            for (i in 0 until count) allPitch[start + i] = out.get(i)
+            val outArr = FloatArray(out.remaining()).also { out.get(it) }
+            for (i in 0 until count) {
+                val off = i * RMVPE_OUTPUT_BINS
+                var bestBin = 0; var bestConf = 0f
+                for (b in 0 until RMVPE_OUTPUT_BINS) {
+                    val idx = off + b
+                    val conf = if (idx < outArr.size) outArr[idx] else 0f
+                    if (conf > bestConf) { bestConf = conf; bestBin = b }
+                }
+                allPitch[start + i] = if (bestConf >= 0.005f) rmvpeBinToFreq(bestBin) else 0f
+            }
             input.close(); result.close()
         }
 
