@@ -309,12 +309,21 @@
                 android:stepSize="0.01" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnFloat"
+                android:id="@+id/btnLsp"
                 style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="启动悬浮麦克风" />
+                android:enabled="false"
+                android:text="LSP模式: 启动" />
+
+            <TextView
+                android:id="@+id/tvLspStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRvcRealtime"

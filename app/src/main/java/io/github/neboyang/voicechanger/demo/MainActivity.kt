@@ -20,9 +20,10 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.slider.Slider
-import io.github.neboyang.voicechanger.FloatMicService
 import io.github.neboyang.voicechanger.RVCModelManager
 import io.github.neboyang.voicechanger.RVCRealtime
+import io.mo.glassmic.GlamicBridge
+import io.mo.glassmic.RvcActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,9 +54,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchDenoise: SwitchCompat
     private lateinit var switchVocalRange: SwitchCompat
     private lateinit var btnRvcRealtime: MaterialButton
-    private lateinit var btnFloat: MaterialButton
+    private lateinit var btnLsp: MaterialButton
+    private lateinit var tvLspStatus: TextView
     private var currentModelDir: File? = null
     private var currentIndexPath: String? = null
+    private var lspRunning = false
 
     private val storageIntentLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refreshModelList() }
@@ -73,7 +76,7 @@ class MainActivity : AppCompatActivity() {
                 input.use { inp -> cacheFile.outputStream().use { inp.copyTo(it) } }
                 currentIndexPath = cacheFile.absolutePath
                 rvcRealtime.engine.loadIndex(cacheFile.absolutePath)
-                FloatMicService.indexPathRef = cacheFile.absolutePath
+                rvcRealtime.engine.loadIndex(cacheFile.absolutePath)
                 tvIndexPath.text = "索引: ${cacheFile.name}"
             } catch (e: Exception) {
                 Toast.makeText(this, "索引加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -110,7 +113,9 @@ class MainActivity : AppCompatActivity() {
         switchDenoise = findViewById(R.id.switchDenoise)
         switchVocalRange = findViewById(R.id.switchVocalRange)
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
-        btnFloat = findViewById(R.id.btnFloat)
+        btnLsp = findViewById(R.id.btnLsp)
+        tvLspStatus = findViewById(R.id.tvLspStatus)
+        btnLsp.text = "LSP模式: 启动"
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
         fun reloadWithBackend(mode: Int) {
@@ -144,7 +149,6 @@ class MainActivity : AppCompatActivity() {
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
             rvcRealtime.f0UpKey = value.toInt()
-            io.github.neboyang.voicechanger.FloatMicService.f0UpKeyRef = value.toInt()
         }
         tvF0Key.text = getString(R.string.rvc_f0_key, 0)
 
@@ -158,7 +162,6 @@ class MainActivity : AppCompatActivity() {
             val level = value.toInt()
             tvNoise.text = getString(R.string.rvc_noise, level)
             rvcRealtime.engine.noiseLevel = level
-            io.github.neboyang.voicechanger.FloatMicService.noiseLevelRef = level
         }
         tvNoise.text = getString(R.string.rvc_noise, 0)
 
@@ -166,38 +169,32 @@ class MainActivity : AppCompatActivity() {
             val level = value.toInt()
             tvEq.text = getString(R.string.rvc_eq, level)
             rvcRealtime.engine.eqLevel = level
-            io.github.neboyang.voicechanger.FloatMicService.eqLevelRef = level
         }
         tvEq.text = getString(R.string.rvc_eq, 0)
 
         sliderProtect.addOnChangeListener { _, value, _ ->
             tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(value))
             rvcRealtime.engine.protectRate = value.toDouble()
-            FloatMicService.protectRateRef = value.toDouble()
         }
         tvProtect.text = getString(R.string.rvc_protect, "0.33")
 
         sliderNoiseGate.addOnChangeListener { _, value, _ ->
             tvNoiseGate.text = "降噪门控: ${value.toInt()}dB"
             rvcRealtime.engine.noiseGateDb = value.toDouble()
-            FloatMicService.noiseGateDbRef = value.toDouble()
         }
         tvNoiseGate.text = "降噪门控: 0dB"
 
         switchDenoise.setOnCheckedChangeListener { _, checked ->
             rvcRealtime.engine.outputDenoiseEnabled = checked
-            FloatMicService.outputDenoiseRef = checked
         }
 
         switchVocalRange.setOnCheckedChangeListener { _, checked ->
             rvcRealtime.engine.vocalRangeFilterEnabled = checked
-            FloatMicService.vocalRangeFilterRef = checked
         }
 
         sliderIndexRate.addOnChangeListener { _, value, _ ->
             tvIndexRate.text = "索引融合: %.2f".format(value)
             rvcRealtime.engine.indexRate = value.toDouble()
-            FloatMicService.indexRateRef = value.toDouble()
         }
         tvIndexRate.text = "索引融合: 0.00"
 
@@ -222,20 +219,22 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 悬浮窗按钮
-        btnFloat.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                Toast.makeText(this, "请允许悬浮窗权限", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
+        btnLsp.setOnClickListener {
+            if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            lspRunning = !lspRunning
+            if (lspRunning) {
+                rvcRealtime.engine.let { engine ->
+                    GlamicBridge.start(engine, rvcRealtime.f0UpKey)
+                }
+                RvcActive.set(true)
+                btnLsp.text = "LSP模式: 运行中"
+                tvLspStatus.text = "变声已注入系统，打开任意App录音即可"
+            } else {
+                GlamicBridge.stop()
+                RvcActive.set(false)
+                btnLsp.text = "LSP模式: 启动"
+                tvLspStatus.text = "已停止"
             }
-            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                Toast.makeText(this, "请允许通知权限", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            FloatMicService.engineRef = rvcRealtime.engine
-            FloatMicService.start(this)
-            Toast.makeText(this, "悬浮窗已启动", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<MaterialButton>(R.id.btnRefreshModels).setOnClickListener {
@@ -271,7 +270,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val ok = rvcRealtime.loadModel(dir)
             withContext(Dispatchers.Main) {
-                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
+                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; btnLsp.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
                 else tvModelStatus.setText(R.string.rvc_model_failed)
             }
         }
