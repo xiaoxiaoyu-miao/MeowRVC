@@ -61,66 +61,43 @@ class RVCRealtime {
         record!!.startRecording()
         track!!.play()
 
-        // 双缓冲：读缓冲和写缓冲交替，避免推理时丢数据
-        val bufCount = 3
-        val bufSize = sr * latencyMs / 1000
-        val bufs = Array(bufCount) { FloatArray(bufSize) }
-        var fillIdx = 0
-        var procIdx = -1
-        var readIdx = 0
-        val lock = Object()
-
         captureThread = Thread({
+            val accumSize = sr * latencyMs / 1000
             val shortBuf = ShortArray(4096)
-            val outBufs = Array(bufCount) { ShortArray(0) }
 
             while (_isRunning.value) {
-                // 填充满当前缓冲
-                var filled = false
-                while (fillIdx < bufs.size && !filled) {
+                val accum = FloatArray(accumSize)
+                var idx = 0
+                while (idx < accumSize && _isRunning.value) {
                     val read = record!!.read(shortBuf, 0, shortBuf.size)
                     if (read <= 0) continue
                     for (i in 0 until read) {
-                        if (readIdx < bufs[fillIdx].size) {
-                            bufs[fillIdx][readIdx++] = shortBuf[i] / 32768f
+                        if (idx < accumSize) accum[idx++] = shortBuf[i] / 32768f
+                    }
+                }
+                if (!_isRunning.value) break
+
+                try {
+                    val inp = FloatArray(accum.size / 3) { accum[it * 3] }
+                    val result = engine.infer(inp, f0UpKey)
+                    if (result != null && result.isNotEmpty()) {
+                        val outLen = (result.size * 48 / 40).coerceAtMost(accumSize)
+                        val outShort = ShortArray(outLen)
+                        val vol = engine.volume
+                        for (i in 0 until outLen) {
+                            val si = ((i.toLong() * result.size) / outLen).toInt().coerceIn(0, result.size - 1)
+                            val s32 = ((result[si] * vol) * 32768f).toInt()
+                            outShort[i] = s32.coerceIn(-32768, 32767).toShort()
+                        }
+                        // 非阻塞写入，避免录制中断
+                        var written = 0
+                        while (written < outShort.size && _isRunning.value) {
+                            val w = track!!.write(outShort, written, outShort.size - written, AudioTrack.WRITE_NON_BLOCKING)
+                            if (w > 0) written += w
+                            else Thread.sleep(10)
                         }
                     }
-                    if (readIdx >= bufs[fillIdx].size) {
-                        readIdx = 0
-                        procIdx = fillIdx
-                        fillIdx++
-                        filled = true
-                    }
-                }
-
-                // 处理已满的缓冲
-                if (procIdx >= 0 && procIdx < bufs.size) {
-                    val inp = FloatArray(bufs[procIdx].size / 3) { bufs[procIdx][it * 3] }
-                    try {
-                        val result = engine.infer(inp, f0UpKey)
-                        if (result != null && result.isNotEmpty()) {
-                            val outLen = (result.size * 48 / 40).coerceAtMost(bufs[procIdx].size)
-                            val outShort = ShortArray(outLen)
-                            val vol = engine.volume
-                            for (i in 0 until outLen) {
-                                val si = ((i.toLong() * result.size) / outLen).toInt().coerceIn(0, result.size - 1)
-                                val s32 = ((result[si] * vol) * 32768f).toInt()
-                                outShort[i] = s32.coerceIn(-32768, 32767).toShort()
-                            }
-                            outBufs[procIdx] = outShort
-                        }
-                    } catch (e: Exception) { onError?.invoke(e) }
-                    if (fillIdx >= bufs.size) fillIdx = 0
-                    procIdx = -1
-                }
-
-                // 播放上一轮已处理好的缓冲
-                for (i in 0 until bufs.size) {
-                    if (outBufs[i].isNotEmpty()) {
-                        track!!.write(outBufs[i], 0, outBufs[i].size)
-                        outBufs[i] = ShortArray(0)
-                    }
-                }
+                } catch (e: Exception) { onError?.invoke(e) }
             }
         }, "rvc-realtime")
         captureThread!!.start()
