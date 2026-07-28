@@ -123,6 +123,17 @@ class MainActivity : AppCompatActivity() {
         // 恢复保存的设置
         val saved = settings.loadSettings()
         rvcRealtime.engine.backendMode = saved.backendMode
+        rvcRealtime.f0UpKey = saved.f0UpKey
+        rvcRealtime.latencyMs = (saved.latency * 1000).toInt()
+        rvcRealtime.engine.noiseLevel = saved.noiseLevel
+        rvcRealtime.engine.eqLevel = saved.eqLevel
+        rvcRealtime.engine.noiseGateDb = saved.noiseGateDb.toDouble()
+        rvcRealtime.engine.outputDenoiseEnabled = saved.outputDenoise
+        rvcRealtime.engine.vocalRangeFilterEnabled = saved.vocalRangeFilter
+        rvcRealtime.engine.indexRate = saved.indexRate.toDouble()
+        rvcRealtime.engine.protectRate = saved.protectRate.toDouble()
+        rvcRealtime.engine.filterRadius = saved.filterRadius
+        rvcRealtime.engine.volume = saved.volume
         sliderF0Key.value = saved.f0UpKey.toFloat()
         sliderProtect.value = saved.protectRate
         sliderLatency.value = saved.latency
@@ -132,8 +143,6 @@ class MainActivity : AppCompatActivity() {
         switchDenoise.isChecked = saved.outputDenoise
         switchVocalRange.isChecked = saved.vocalRangeFilter
         sliderIndexRate.value = saved.indexRate
-        rvcRealtime.engine.filterRadius = saved.filterRadius
-        rvcRealtime.engine.volume = saved.volume
         tvF0Key.text = getString(R.string.rvc_f0_key, saved.f0UpKey)
         tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(saved.protectRate))
         tvLatency.text = getString(R.string.rvc_latency, saved.latency)
