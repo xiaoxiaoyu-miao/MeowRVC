@@ -1,12 +1,12 @@
 package io.github.neboyang.voicechanger
 
 import android.content.Context
-import android.content.res.AssetManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URL
 
 class RVCModelManager(private val context: Context) {
 
@@ -27,36 +27,77 @@ class RVCModelManager(private val context: Context) {
     private val _models = MutableStateFlow<List<ModelInfo>>(emptyList())
     val models: StateFlow<List<ModelInfo>> = _models
 
-    fun getModelDir(modelId: String): File = File(modelsDir, modelId)
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress
 
+    private val _downloadStatus = MutableStateFlow("")
+    val downloadStatus: StateFlow<String> = _downloadStatus
+
+    fun getModelDir(modelId: String): File = File(modelsDir, modelId)
     fun isModelDownloaded(modelId: String): Boolean = File(modelsDir, modelId).exists()
 
-    /** 从 assets 复制基础模型 + 用户选择的 ONNX 到模型目录，生成 config.json */
-    fun importModel(onnxPath: String): ModelInfo? {
+    /** 下载基础模型到缓存目录（国内镜像）*/
+    private suspend fun ensureBaseModels(): Boolean = withContext(Dispatchers.IO) {
+        val cacheDir = File(context.cacheDir, "base_models")
+        cacheDir.mkdirs()
+        val urls = mapOf(
+            "hubert.onnx" to "https://hf-mirror.com/Sharl210/ultimate-rvc-mobile/resolve/main/hubert.onnx",
+            "rmvpe.onnx" to "https://hf-mirror.com/Sharl210/ultimate-rvc-mobile/resolve/main/rmvpe.onnx"
+        )
+        for ((name, url) in urls) {
+            val target = File(cacheDir, name)
+            if (target.exists() && target.length() > 100_000_000) continue
+            _downloadStatus.value = "下载 $name..."
+            try {
+                val conn = URL(url).openConnection()
+                conn.connectTimeout = 30000
+                conn.readTimeout = 120000
+                val total = conn.contentLengthLong
+                val input = conn.getInputStream()
+                val output = FileOutputStream(target)
+                val buf = ByteArray(8192)
+                var read: Int; var downloaded = 0L
+                while (input.read(buf).also { read = it } != -1) {
+                    output.write(buf, 0, read)
+                    downloaded += read
+                    if (total > 0) _downloadProgress.value = downloaded.toFloat() / total
+                }
+                output.close(); input.close()
+            } catch (e: Exception) {
+                _downloadStatus.value = "下载失败: ${e.message}"
+                return@withContext false
+            }
+        }
+        _downloadProgress.value = 1f
+        _downloadStatus.value = "基础模型就绪"
+        true
+    }
+
+    /** 导入用户 ONNX 模型：下载基础模型 + 复制用户文件 + 生成 config */
+    suspend fun importModel(onnxPath: String): ModelInfo? = withContext(Dispatchers.IO) {
         val onnxFile = File(onnxPath)
         val modelName = onnxFile.nameWithoutExtension
         val dir = File(modelsDir, modelName)
         dir.mkdirs()
 
-        // 复制基础模型（assets 中提取）
-        try {
-            for (base in listOf("hubert.onnx", "rmvpe.onnx")) {
-                val target = File(dir, base)
-                if (!target.exists()) {
-                    context.assets.open("models/$base").use { input ->
-                        FileOutputStream(target).use { input.copyTo(it) }
-                    }
-                }
+        // 1. 确保基础模型已下载
+        val baseOk = ensureBaseModels()
+        if (!baseOk) { return@withContext null }
+
+        // 2. 复制基础模型到目标目录
+        val cacheDir = File(context.cacheDir, "base_models")
+        for (base in listOf("hubert.onnx", "rmvpe.onnx")) {
+            val target = File(dir, base)
+            if (!target.exists()) {
+                File(cacheDir, base).copyTo(target, overwrite = true)
             }
-        } catch (e: Exception) {
-            return null
         }
 
-        // 复制用户选择的 ONNX
+        // 3. 复制用户 ONNX
         val targetOnnx = File(dir, onnxFile.name)
         if (!targetOnnx.exists()) onnxFile.copyTo(targetOnnx, overwrite = true)
 
-        // 生成 config.json
+        // 4. 生成 config.json
         val cfg = org.json.JSONObject().apply {
             put("name", modelName)
             put("version", "v2")
@@ -67,9 +108,8 @@ class RVCModelManager(private val context: Context) {
         File(dir, "config.json").writeText(cfg.toString())
 
         val info = ModelInfo(id = modelName, name = modelName)
-        // 刷新列表
         scanLocalModels()
-        return info
+        return@withContext info
     }
 
     fun scanLocalModels() {

@@ -115,9 +115,11 @@ class MainActivity : AppCompatActivity() {
                         withContext(Dispatchers.Main) {
                             Toast.makeText(this@MainActivity, "已导入: ${info.name}", Toast.LENGTH_SHORT).show()
                         }
+                    } else {
+                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "导入失败，请检查网络", Toast.LENGTH_LONG).show() }
                     }
                 } catch (e: Exception) {
-                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show() }
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "失败: ${e.message}", Toast.LENGTH_SHORT).show() }
                 }
             }
         }
@@ -243,6 +245,7 @@ class MainActivity : AppCompatActivity() {
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
             rvcRealtime.f0UpKey = value.toInt(); settings.save("f0UpKey", value.toInt())
+            FloatMicService.f0UpKeyRef = value.toInt()
         }
 
         sliderLatency.addOnChangeListener { _, value, _ ->
@@ -326,6 +329,8 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             FloatMicService.engineRef = rvcRealtime.engine
+            FloatMicService.f0UpKeyRef = rvcRealtime.f0UpKey
+            FloatMicService.volumeRef = rvcRealtime.engine.volume
             FloatMicService.start(this)
             Toast.makeText(this, "悬浮窗已启动", Toast.LENGTH_SHORT).show()
         }
