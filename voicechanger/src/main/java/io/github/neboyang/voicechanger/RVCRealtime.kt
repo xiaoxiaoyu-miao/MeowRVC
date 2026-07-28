@@ -10,13 +10,15 @@ import androidx.annotation.RequiresPermission
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import java.util.concurrent.ArrayBlockingQueue
 
 class RVCRealtime {
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning
 
     val engine = RVCOnnxEngine()
-    private var captureThread: Thread? = null
+    private var recThread: Thread? = null
+    private var procThread: Thread? = null
     private var record: AudioRecord? = null
     private var track: AudioTrack? = null
     private var modelLoaded = false
@@ -28,7 +30,7 @@ class RVCRealtime {
     fun loadModel(modelDir: File): Boolean {
         modelLoaded = engine.load(modelDir)
         if (modelLoaded) {
-            engine.startServer()  // Start LSPosed socket server
+            engine.startServer()
         }
         return modelLoaded
     }
@@ -40,10 +42,8 @@ class RVCRealtime {
 
         val sr = 48000
         val recBuf = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-
         record = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, recBuf * 4)
-        // 开启声学回声消除
         try { android.media.audiofx.AcousticEchoCanceler.create(record!!.audioSessionId)?.enabled = true } catch (_: Exception) {}
 
         val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
@@ -55,16 +55,18 @@ class RVCRealtime {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 16).build()
+            .setBufferSizeInBytes(playBuf * 4).build()
 
         _isRunning.value = true
         record!!.startRecording()
         track!!.play()
 
-        captureThread = Thread({
-            val accumSize = sr * latencyMs / 1000
-            val shortBuf = ShortArray(4096)
+        // 录音线程：持续写入环形缓冲区
+        val accumSize = sr * latencyMs / 1000
+        val ringBuf = ArrayBlockingQueue<FloatArray>(4)
 
+        recThread = Thread({
+            val shortBuf = ShortArray(4096)
             while (_isRunning.value) {
                 val accum = FloatArray(accumSize)
                 var idx = 0
@@ -75,10 +77,16 @@ class RVCRealtime {
                         if (idx < accumSize) accum[idx++] = shortBuf[i] / 32768f
                     }
                 }
-                if (!_isRunning.value) break
+                if (_isRunning.value) ringBuf.put(accum)
+            }
+        }, "rvc-record")
 
+        // 推理+播放线程：从环形缓冲区读取并处理
+        procThread = Thread({
+            while (_isRunning.value) {
+                val accum = ringBuf.take()
+                val inp = FloatArray(accum.size / 3) { accum[it * 3] }
                 try {
-                    val inp = FloatArray(accum.size / 3) { accum[it * 3] }
                     val result = engine.infer(inp, f0UpKey)
                     if (result != null && result.isNotEmpty()) {
                         val outLen = (result.size * 48 / 40).coerceAtMost(accumSize)
@@ -89,23 +97,26 @@ class RVCRealtime {
                             val s32 = ((result[si] * vol) * 32768f).toInt()
                             outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                         }
-                        // 非阻塞写入，避免录制中断
+                        // 非阻塞写入，不影响录音
                         var written = 0
                         while (written < outShort.size && _isRunning.value) {
                             val w = track!!.write(outShort, written, outShort.size - written, AudioTrack.WRITE_NON_BLOCKING)
                             if (w > 0) written += w
-                            else Thread.sleep(10)
+                            else Thread.sleep(5)
                         }
                     }
                 } catch (e: Exception) { onError?.invoke(e) }
             }
-        }, "rvc-realtime")
-        captureThread!!.start()
+        }, "rvc-process")
+
+        recThread!!.start()
+        procThread!!.start()
     }
 
     fun stop() {
         _isRunning.value = false
-        captureThread?.join(2000); captureThread = null
+        recThread?.join(3000); recThread = null
+        procThread?.join(3000); procThread = null
         try { record?.stop() } catch (_: Exception) {}
         record?.release(); record = null
         try { track?.stop() } catch (_: Exception) {}
