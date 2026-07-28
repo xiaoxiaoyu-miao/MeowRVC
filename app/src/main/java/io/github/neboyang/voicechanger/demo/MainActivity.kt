@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         btnFloat = findViewById(R.id.btnFloat)
         btnLsp = findViewById(R.id.btnLsp)
         tvLspStatus = findViewById(R.id.tvLspStatus)
-        btnLsp.text = "屏蔽麦克风: 关"
+        btnLsp.text = "开始LSP模式"
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
         fun reloadWithBackend(mode: Int) {
@@ -238,13 +238,24 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "悬浮窗已启动", Toast.LENGTH_SHORT).show()
         }
 
-        // 屏蔽麦克风按钮（利用 LSPosed hook 让系统麦克风返回静音）
-        var micBlocked = false
+        // LSP模式：启动RVC音源→PCM管道→目标App接收变声音频
+        var lspRunning = false
         btnLsp.setOnClickListener {
-            micBlocked = !micBlocked
-            RvcActive.blockMic = micBlocked
-            btnLsp.text = if (micBlocked) "屏蔽麦克风: 开" else "屏蔽麦克风: 关"
-            tvLspStatus.text = if (micBlocked) "系统麦克风已屏蔽，目标App将收到静音" else ""
+            if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            lspRunning = !lspRunning
+            if (lspRunning) {
+                rvcRealtime.engine.let { engine ->
+                    GlamicBridge.start(engine, rvcRealtime.f0UpKey)
+                }
+                RvcActive.set(true)
+                btnLsp.text = "停止LSP模式"
+                tvLspStatus.text = "变声已注入，目标App收到的是变声后的声音"
+            } else {
+                GlamicBridge.stop()
+                RvcActive.set(false)
+                btnLsp.text = "开始LSP模式"
+                tvLspStatus.text = "已停止"
+            }
         }
 
         findViewById<MaterialButton>(R.id.btnRefreshModels).setOnClickListener {

@@ -1,9 +1,9 @@
 package io.mo.glassmic.core
 
 object Constants {
-    const val APP_PACKAGE = "io.mo.glassmic"
-    const val APP_NAME = "GlassMic"
-    const val APP_NAME_ZH = "璃麦"
+    const val APP_PACKAGE = "io.github.neboyang.voicechanger.demo"
+    const val APP_NAME = "MeowRVC"
+    const val APP_NAME_ZH = "喵喵RVC"
 
     // 旧版共享配置名；当前 Xposed 侧优先通过 RuntimeProvider 实时查询
     const val XSHARED_PREFS_NAME = "glassmic_shared"

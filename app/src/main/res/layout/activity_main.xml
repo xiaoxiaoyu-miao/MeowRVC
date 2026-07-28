@@ -322,7 +322,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:enabled="false"
-                android:text="LSP模式: 启动" />
+                android:text="开始LSP模式" />
 
             <TextView
                 android:id="@+id/tvLspStatus"
