@@ -59,6 +59,13 @@ class MainActivity : AppCompatActivity() {
     private var currentModelDir: File? = null
     private var currentIndexPath: String? = null
 
+    private val cloudModelPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) cloudRvc?.handlePickedUri(uri)
+        }
+
+    private var cloudRvc: ReplicateCloudRvc? = null
+
     private val storageIntentLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refreshModelList() }
     private val storagePermLauncher =
@@ -268,7 +275,8 @@ class MainActivity : AppCompatActivity() {
         btnCloud.setOnClickListener {
             val dir = File("/sdcard/rvc")
             val latest = dir.listFiles { f -> f.name.endsWith(".wav") }?.maxByOrNull { it.lastModified() }
-            ReplicateCloudRvc(this).show(latest)
+            cloudRvc = ReplicateCloudRvc(this)
+            cloudRvc?.show(latest, cloudModelPicker)
         }
 
         findViewById<MaterialButton>(R.id.btnRefreshModels).setOnClickListener {
