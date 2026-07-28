@@ -136,17 +136,16 @@ object XBridge {
         return runCatching {
             val c = cr.query(uri, null, null, arrayOf(pkg, apiVersion.toString()), null)
             if (c == null) {
-                // Provider 被禁用（服务未运行）→ AMS 不解析、不拉起本进程，直接走真麦
                 lastReachable = false
-                return SourceType.REAL_MIC
+                return SourceType.SILENCE
             }
             c.use {
                 lastReachable = true
-                if (it.moveToFirst()) SourceType.valueOf(it.getString(0)) else SourceType.REAL_MIC
+                if (it.moveToFirst()) SourceType.valueOf(it.getString(0)) else SourceType.SILENCE
             }
         }.getOrElse {
             lastReachable = false
-            SourceType.REAL_MIC
+            SourceType.SILENCE
         }
     }
 }

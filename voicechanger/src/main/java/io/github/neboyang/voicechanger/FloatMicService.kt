@@ -63,10 +63,74 @@ class FloatMicService : Service() {
             val active = configs?.any { it.clientAudioSource == MediaRecorder.AudioSource.MIC ||
                 it.clientAudioSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION } == true
             if (active) {
-                tvStatus?.text = "检测到录音"
-                playLatest()
+                tvStatus?.text = "检测到录音，自动变声中"
+                if (autoRecThread == null) startAutoRecord()
+            } else {
+                tvStatus?.text = "录音结束"
+                stopAutoRecord()
             }
         }
+    }
+
+    private var autoRecThread: Thread? = null
+    private var autoRunning = false
+
+    private fun startAutoRecord() {
+        if (autoRunning) return
+        autoRunning = true
+        val sr = 48000
+        val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096) * 4
+        val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs)
+        try { android.media.audiofx.AcousticEchoCanceler.create(rec.audioSessionId)?.enabled = true } catch (_: Exception) {}
+        rec.startRecording()
+
+        val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setBufferSizeInBytes(playBuf * 8).build()
+        if (Build.VERSION.SDK_INT >= 31) {
+            val spk = audioManager?.availableCommunicationDevices?.find { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            if (spk != null) audioManager?.setCommunicationDevice(spk) else audioManager?.isSpeakerphoneOn = true
+        } else audioManager?.isSpeakerphoneOn = true
+        track.play()
+
+        autoRecThread = Thread({
+            val e = engine; if (e == null) { rec.stop(); rec.release(); track.stop(); track.release(); autoRunning = false; return@Thread }
+            val buf = ShortArray(4096); val hop = 160; val frames = 50
+            val accum = FloatArray(frames * hop * 3); var idx = 0
+            while (autoRunning && !Thread.interrupted()) {
+                val r = rec.read(buf, 0, buf.size); if (r <= 0) continue
+                for (i in 0 until r) { if (idx < accum.size) accum[idx++] = buf[i] / 32768f }
+                if (idx >= accum.size) {
+                    idx = 0
+                    val inp = FloatArray(accum.size / 3) { accum[it * 3] }
+                    try {
+                        val res = e.infer(inp, f0UpKeyRef)
+                        if (res != null && res.isNotEmpty()) {
+                            val outLen = res.size * 48 / 40
+                            val outShort = ShortArray(outLen)
+                            val vol = volumeRef.coerceIn(0f, 1f)
+                            for (i in 0 until outLen) {
+                                val si = ((i.toLong() * res.size) / outLen).toInt().coerceIn(0, res.size - 1)
+                                val s32 = ((res[si] * vol) * 32768f).toInt()
+                                outShort[i] = s32.coerceIn(-32768, 32767).toShort()
+                            }
+                            track.write(outShort, 0, outShort.size)
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            try { rec.stop(); rec.release() } catch (_: Exception) {}
+            try { track.stop(); track.release() } catch (_: Exception) {}
+            autoRunning = false
+        }, "float-auto").also { it.start() }
+    }
+
+    private fun stopAutoRecord() {
+        autoRunning = false
+        autoRecThread?.join(2000)
+        autoRecThread = null
     }
 
     private fun playLatest() {
