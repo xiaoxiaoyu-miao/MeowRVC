@@ -215,7 +215,17 @@ class FloatMicService : Service() {
 
         recordThread = Thread({
             val list = mutableListOf<ShortArray>(); val buf = ShortArray(bs)
-            while (isRecording) { val r = audioRecord!!.read(buf, 0, buf.size); if (r > 0) list.add(buf.copyOf(r)) }
+            var silenceFrames = 0; val vadThreshold = 300 // 300帧 × 160/48000 = 1秒
+            while (isRecording) {
+                val r = audioRecord!!.read(buf, 0, buf.size); if (r <= 0) continue
+                list.add(buf.copyOf(r))
+                // VAD：检测静音超过 1 秒自动停止
+                var energy = 0f; val n = minOf(r, 160)
+                for (i in 0 until n) { val s = buf[i].toInt(); energy += (s * s).toFloat() }
+                energy = kotlin.math.sqrt(energy / n)
+                if (energy < 500f) silenceFrames++ else silenceFrames = 0
+                if (silenceFrames >= vadThreshold) { isRecording = false; tvStatus?.post { tvStatus?.text = "检测到停顿" } }
+            }
             audioRecord!!.stop(); audioRecord!!.release(); audioRecord = null
             val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
             for (a in list) for (s in a) fa[o++] = s / 32768f
@@ -225,7 +235,8 @@ class FloatMicService : Service() {
             if (res != null && res.isNotEmpty()) {
                 File("/sdcard/rvc").mkdirs()
                 io.github.neboyang.voicechanger.WavFile.write(File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"), res, 40000)
-                tvStatus?.post { tvStatus?.text = "已保存" }
+                tvStatus?.post { tvStatus?.text = "已保存，外放中…" }
+                playLatest()
             } else tvStatus?.post { tvStatus?.text = "处理失败" }
         }, "float-record").also { it.start() }
     }
