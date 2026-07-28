@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvIndexPath: TextView
     private lateinit var switchDenoise: SwitchCompat
     private lateinit var switchVocalRange: SwitchCompat
+    private lateinit var switchRmvpe: SwitchCompat
     private lateinit var btnRvcRealtime: MaterialButton
     private lateinit var btnFloat: MaterialButton
     private lateinit var btnCloud: MaterialButton
@@ -187,6 +188,7 @@ class MainActivity : AppCompatActivity() {
         sliderIndexRate = findViewById(R.id.sliderIndexRate)
         switchDenoise = findViewById(R.id.switchDenoise)
         switchVocalRange = findViewById(R.id.switchVocalRange)
+        switchRmvpe = findViewById(R.id.switchRmvpe)
 
         // 恢复保存的设置
         val saved = settings.loadSettings()
@@ -210,6 +212,7 @@ class MainActivity : AppCompatActivity() {
         sliderNoiseGate.value = saved.noiseGateDb
         switchDenoise.isChecked = saved.outputDenoise
         switchVocalRange.isChecked = saved.vocalRangeFilter
+        switchRmvpe.isChecked = true
         sliderIndexRate.value = saved.indexRate
         tvF0Key.text = getString(R.string.rvc_f0_key, saved.f0UpKey)
         tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(saved.protectRate))
@@ -297,6 +300,9 @@ class MainActivity : AppCompatActivity() {
         switchVocalRange.setOnCheckedChangeListener { _, checked ->
             rvcRealtime.engine.vocalRangeFilterEnabled = checked; settings.save("vocalRangeFilter", checked)
             FloatMicService.vocalRangeFilterRef = checked
+        }
+        switchRmvpe.setOnCheckedChangeListener { _, checked ->
+            rvcRealtime.engine.useRmvpe = checked; settings.save("useRmvpe", checked)
         }
 
         sliderIndexRate.addOnChangeListener { _, value, _ ->

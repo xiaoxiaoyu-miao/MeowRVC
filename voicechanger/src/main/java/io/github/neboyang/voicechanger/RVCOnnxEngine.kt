@@ -262,7 +262,7 @@ class RVCOnnxEngine {
 
         try {
             val tTot = System.nanoTime()
-            val maxFrames = 50  // 合并模型固定 50 帧
+            val maxFrames = 64  // NPU 需要 32 的倍数
             val hop = 160
             val totalFrames = audio.size / hop
             val allOutput = mutableListOf<FloatArray>()
@@ -315,7 +315,7 @@ class RVCOnnxEngine {
 
                 // F0: RMVPE or autocorrelation fallback
                 val tF0 = System.nanoTime()
-                val pitchf = if (sessions.containsKey("rmvpe")) {
+                val pitchf = if (sessions.containsKey("rmvpe") && useRmvpe) {
                     extractRmvpePitch(segAudio, sl)
                 } else {
                     autocorrelateF0(segAudio, segSamples, sl, hop)

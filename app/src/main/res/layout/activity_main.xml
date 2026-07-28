@@ -278,6 +278,22 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="RMVPE 音高提取" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchRmvpe"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/tvIndexPath"
                 android:layout_width="match_parent"

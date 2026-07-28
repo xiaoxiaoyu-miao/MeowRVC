@@ -33,6 +33,9 @@ class RVCRealtime {
         return modelLoaded
     }
 
+    /** 反馈抑制：记录播放时间戳，录音时跳过自身外放 */
+    @Volatile private var lastPlayMs = 0L
+
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
         if (!modelLoaded) { onError?.invoke(java.lang.IllegalStateException("Model not loaded")); return }
@@ -122,6 +125,7 @@ class RVCRealtime {
                             if (w > 0) written += w
                             else Thread.sleep(5)
                         }
+                        lastPlayMs = System.currentTimeMillis()
                     }
                 } catch (e: Exception) { onError?.invoke(e) }
             }
