@@ -51,8 +51,8 @@ class RVCOnnxEngine {
     fun getAvailableBackends(): List<Pair<Int, String>> {
         val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
         val list = mutableListOf<Pair<Int, String>>()
-        if ("QnnExecutionProvider" in available || "NnapiExecutionProvider" in available) list.add(2 to "NPU")
-        if ("XnnpackExecutionProvider" in available) list.add(1 to "加速CPU")
+        if (available.any { "qnn" in it.lowercase() || "nnapi" in it.lowercase() }) list.add(2 to "NPU")
+        if (available.any { "xnnpack" in it.lowercase() }) list.add(1 to "加速CPU")
         list.add(0 to "CPU")
         return list
     }
@@ -127,12 +127,12 @@ class RVCOnnxEngine {
             val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
             val providers = when (backendMode) {
                 0 -> "CPUExecutionProvider"
-                1 -> if ("XnnpackExecutionProvider" in available) "XnnpackExecutionProvider,CPUExecutionProvider" else "CPUExecutionProvider"
+                1 -> if (available.any { "xnnpack" in it.lowercase() }) "XnnpackExecutionProvider,CPUExecutionProvider" else "CPUExecutionProvider"
                 else -> {
                     buildString {
-                        if ("QnnExecutionProvider" in available) append("QnnExecutionProvider,")
-                        if ("NnapiExecutionProvider" in available) append("NnapiExecutionProvider,")
-                        if ("XnnpackExecutionProvider" in available) append("XnnpackExecutionProvider,")
+                        if (available.any { "qnn" in it.lowercase() }) append("QnnExecutionProvider,")
+                        if (available.any { "nnapi" in it.lowercase() }) append("NnapiExecutionProvider,")
+                        if (available.any { "xnnpack" in it.lowercase() }) append("XnnpackExecutionProvider,")
                         append("CPUExecutionProvider")
                     }
                 }
@@ -836,14 +836,15 @@ class RVCOnnxEngine {
     // ──────────────────────────────────────────────
     private fun detectActualBackend(modelDir: File): String {
         val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
+        Log.e("RVC", "Available providers: $available")
         val result = when (backendMode) {
             0 -> "CPU"
-            1 -> if ("XnnpackExecutionProvider" in available) "XNNPACK" else "CPU"
+            1 -> if (available.any { "xnnpack" in it.lowercase() }) "XNNPACK" else "CPU"
             else -> {
                 when {
-                    "QnnExecutionProvider" in available -> "QNN (NPU)"
-                    "NnapiExecutionProvider" in available -> "NNAPI"
-                    "XnnpackExecutionProvider" in available -> "XNNPACK"
+                    available.any { "qnn" in it.lowercase() } -> "QNN (NPU)"
+                    available.any { "nnapi" in it.lowercase() } -> "NNAPI"
+                    available.any { "xnnpack" in it.lowercase() } -> "XNNPACK"
                     else -> "CPU"
                 }
             }
