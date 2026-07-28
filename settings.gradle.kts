@@ -9,8 +9,6 @@ pluginManagement {
         }
         mavenCentral()
         gradlePluginPortal()
-        maven { url = uri("https://api.xposed.info/repository") }
-        maven { url = uri("https://jitpack.io") }
     }
 }
 
@@ -19,13 +17,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://api.xposed.info/repository") }
-        maven { url = uri("https://jitpack.io") }
     }
 }
 
 rootProject.name = "VoiceChanger"
 include(":voicechanger")
 include(":app")
-include(":glamic-core")
-include(":glamic-xposed")
