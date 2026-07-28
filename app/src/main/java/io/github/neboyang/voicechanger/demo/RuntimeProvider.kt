@@ -13,7 +13,11 @@ class RuntimeProvider : ContentProvider() {
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
         val pkg = selectionArgs?.firstOrNull() ?: ""
-        val source = if (RvcActive.get()) "FILE" else "REAL_MIC"
+        val source = when {
+            RvcActive.blockMic -> "SILENCE"
+            RvcActive.get() -> "FILE"
+            else -> "REAL_MIC"
+        }
         return MatrixCursor(arrayOf("source", "group_id", "audio_id", "global_switch"))
             .apply { addRow(arrayOf(source, "", "", 1)) }
     }
