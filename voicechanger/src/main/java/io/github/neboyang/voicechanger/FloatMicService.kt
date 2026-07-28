@@ -46,6 +46,13 @@ class FloatMicService : Service() {
         var f0UpKeyRef: Int = 0
         var noiseLevelRef: Int = 0
         var eqLevelRef: Int = 0
+        var volumeRef: Float = 0.8f
+        var noiseGateDbRef: Double = 0.0
+        var outputDenoiseRef: Boolean = false
+        var vocalRangeFilterRef: Boolean = false
+        var indexRateRef: Double = 0.0
+        var indexPathRef: String? = null
+        var protectRateRef: Double = 0.33
         fun start(ctx: Context) { ctx.startForegroundService(Intent(ctx, FloatMicService::class.java)) }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, FloatMicService::class.java)) }
     }
@@ -107,6 +114,7 @@ class FloatMicService : Service() {
                 }
                 Thread.sleep(300)
 
+                tr.setVolume(engine?.volume ?: 0.8f)
                 tr.play()
                 var offset = 0
                 while (offset < pcm.size) {
@@ -169,7 +177,7 @@ class FloatMicService : Service() {
         floatView.setOnClickListener {
             if (engine?.isLoaded() != true) {
                 Thread {
-                    for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.noiseLevel = noiseLevelRef; engine?.eqLevel = eqLevelRef; Thread.sleep(1000) }
+                    for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.apply { noiseLevel = noiseLevelRef; eqLevel = eqLevelRef; volume = volumeRef; noiseGateDb = noiseGateDbRef; outputDenoiseEnabled = outputDenoiseRef; vocalRangeFilterEnabled = vocalRangeFilterRef; indexRate = indexRateRef; protectRate = protectRateRef; loadIndex(indexPathRef) }; Thread.sleep(1000) }
                     floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
                 }.start(); return@setOnClickListener
             }
@@ -180,11 +188,10 @@ class FloatMicService : Service() {
         floatView.setOnLongClickListener { playLatest(); true }
 
         engine = engineRef
-        engine?.noiseLevel = noiseLevelRef
-        engine?.eqLevel = eqLevelRef
+        engine?.apply { noiseLevel = noiseLevelRef; eqLevel = eqLevelRef; volume = volumeRef; noiseGateDb = noiseGateDbRef; outputDenoiseEnabled = outputDenoiseRef; vocalRangeFilterEnabled = vocalRangeFilterRef; indexRate = indexRateRef; protectRate = protectRateRef; loadIndex(indexPathRef) }
         tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "等待模型…"
         if (engine?.isLoaded() != true) Thread {
-            for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.noiseLevel = noiseLevelRef; engine?.eqLevel = eqLevelRef; Thread.sleep(1000) }
+            for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.apply { noiseLevel = noiseLevelRef; eqLevel = eqLevelRef; volume = volumeRef; noiseGateDb = noiseGateDbRef; outputDenoiseEnabled = outputDenoiseRef; vocalRangeFilterEnabled = vocalRangeFilterRef; indexRate = indexRateRef; protectRate = protectRateRef; loadIndex(indexPathRef) }; Thread.sleep(1000) }
             floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
         }.start()
 
@@ -201,6 +208,8 @@ class FloatMicService : Service() {
         val sr = 48000
         val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         audioRecord = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 2)
+        // 开启声学回声消除（过滤扬声器回授 + 其他 App 声音）
+        try { android.media.audiofx.AcousticEchoCanceler.create(audioRecord!!.audioSessionId)?.enabled = true } catch (_: Exception) {}
         audioRecord!!.startRecording(); isRecording = true; isOurRecording = true; tvStatus?.text = "录音中…"
 
         recordThread = Thread({

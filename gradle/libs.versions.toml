@@ -8,6 +8,7 @@ appcompat = "1.7.0"
 material = "1.12.0"
 lifecycle = "2.8.7"
 junit = "4.13.2"
+onnxruntime = "1.20.0"
 
 [libraries]
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -17,6 +18,10 @@ androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "a
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
 material = { module = "com.google.android.material:material", version.ref = "material" }
 junit = { module = "junit:junit", version.ref = "junit" }
+onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android-qnn", version.ref = "onnxruntime" }
+libxposed-api = { module = "io.github.libxposed:api", version = "101.0.1" }
+legacy-xposed-api = { module = "io.github.libxposed:api", version = "82" }
+shadowhook = { module = "com.bytedance.android:shadowhook", version = "1.0.9" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

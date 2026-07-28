@@ -38,6 +38,7 @@ kotlin {
 
 dependencies {
     implementation(project(":voicechanger"))
+    implementation(project(":glamic-xposed"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)

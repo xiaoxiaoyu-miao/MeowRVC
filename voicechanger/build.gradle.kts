@@ -60,7 +60,7 @@ kotlin {
 dependencies {
     api(libs.kotlinx.coroutines.android)
     api(libs.androidx.annotation)
-    implementation(files("libs/onnxruntime.jar"))
+    api(libs.onnxruntime.android)
     testImplementation(libs.junit)
 }
 

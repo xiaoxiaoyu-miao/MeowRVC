@@ -32,6 +32,6 @@
     <string name="rvc_latency">延时：%1$.1f 秒（越长音质越好）</string>
     <string name="rvc_noise">降噪：%1$d（0=关，5=最强）</string>
     <string name="rvc_eq">外放补偿：%1$d（0=关，5=最强）</string>
-    <string name="rvc_protect">气息保护：%1$.0f%%</string>
+    <string name="rvc_protect">气息保护：%1$s</string>
     <string name="rvc_no_models">暂无模型。用 PC 运行 convert_rvc.py 转换 .pth → .onnx，放入此目录</string>
 </resources>

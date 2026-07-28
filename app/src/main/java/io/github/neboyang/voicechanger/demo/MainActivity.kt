@@ -7,11 +7,13 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.TextUtils
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
@@ -38,17 +40,45 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBackend: TextView
     private lateinit var modelList: ChipGroup
     private lateinit var sliderF0Key: Slider
+    private lateinit var sliderProtect: Slider
+    private lateinit var tvProtect: TextView
     private lateinit var sliderLatency: Slider
     private lateinit var sliderNoise: Slider
     private lateinit var sliderEq: Slider
+    private lateinit var sliderNoiseGate: Slider
+    private lateinit var tvNoiseGate: TextView
+    private lateinit var sliderIndexRate: Slider
+    private lateinit var tvIndexRate: TextView
+    private lateinit var tvIndexPath: TextView
+    private lateinit var switchDenoise: SwitchCompat
+    private lateinit var switchVocalRange: SwitchCompat
     private lateinit var btnRvcRealtime: MaterialButton
     private lateinit var btnFloat: MaterialButton
     private var currentModelDir: File? = null
+    private var currentIndexPath: String? = null
 
     private val storageIntentLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refreshModelList() }
     private val storagePermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) refreshModelList() }
+
+    private val indexPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val path = uri.path ?: return@registerForActivityResult
+            // Copy to app cache to get a file path
+            try {
+                val input = contentResolver.openInputStream(uri) ?: return@registerForActivityResult
+                val cacheFile = File(cacheDir, "selected_index.index")
+                input.use { inp -> cacheFile.outputStream().use { inp.copyTo(it) } }
+                currentIndexPath = cacheFile.absolutePath
+                rvcRealtime.engine.loadIndex(cacheFile.absolutePath)
+                FloatMicService.indexPathRef = cacheFile.absolutePath
+                tvIndexPath.text = "索引: ${cacheFile.name}"
+            } catch (e: Exception) {
+                Toast.makeText(this, "索引加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,17 +91,55 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         tvModelStatus = findViewById(R.id.tvModelStatus)
         tvF0Key = findViewById(R.id.tvF0Key)
+        tvProtect = findViewById(R.id.tvProtect)
         tvLatency = findViewById(R.id.tvLatency)
         tvNoise = findViewById(R.id.tvNoise)
         tvEq = findViewById(R.id.tvEq)
+        tvNoiseGate = findViewById(R.id.tvNoiseGate)
+        tvIndexRate = findViewById(R.id.tvIndexRate)
+        tvIndexPath = findViewById(R.id.tvIndexPath)
         tvBackend = findViewById(R.id.tvBackend)
         modelList = findViewById(R.id.modelList)
         sliderF0Key = findViewById(R.id.sliderF0Key)
+        sliderProtect = findViewById(R.id.sliderProtect)
         sliderLatency = findViewById(R.id.sliderLatency)
         sliderNoise = findViewById(R.id.sliderNoise)
         sliderEq = findViewById(R.id.sliderEq)
+        sliderNoiseGate = findViewById(R.id.sliderNoiseGate)
+        sliderIndexRate = findViewById(R.id.sliderIndexRate)
+        switchDenoise = findViewById(R.id.switchDenoise)
+        switchVocalRange = findViewById(R.id.switchVocalRange)
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnFloat = findViewById(R.id.btnFloat)
+
+        val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
+        fun reloadWithBackend(mode: Int) {
+            rvcRealtime.engine.backendMode = mode
+            android.util.Log.e("RVC", "Backend switch to mode=$mode")
+            val dir = currentModelDir ?: return
+            lifecycleScope.launch(Dispatchers.IO) {
+                android.util.Log.e("RVC", "Reloading model with backendMode=$mode")
+                val ok = rvcRealtime.engine.load(dir)
+                withContext(Dispatchers.Main) {
+                    if (ok) {
+                        tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}"
+                    } else {
+                        Toast.makeText(this@MainActivity, "切换后端失败", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        // 动态生成后端选择器
+        val backends = rvcRealtime.engine.getAvailableBackends()
+        backendSwitch.removeAllViews()
+        for ((mode, label) in backends) {
+            val chip = com.google.android.material.chip.Chip(this)
+            chip.text = label
+            chip.isCheckable = true
+            chip.setOnClickListener { reloadWithBackend(mode) }
+            if (mode == rvcRealtime.engine.backendMode) chip.isChecked = true
+            backendSwitch.addView(chip)
+        }
 
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
@@ -101,6 +169,41 @@ class MainActivity : AppCompatActivity() {
             io.github.neboyang.voicechanger.FloatMicService.eqLevelRef = level
         }
         tvEq.text = getString(R.string.rvc_eq, 0)
+
+        sliderProtect.addOnChangeListener { _, value, _ ->
+            tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(value))
+            rvcRealtime.engine.protectRate = value.toDouble()
+            FloatMicService.protectRateRef = value.toDouble()
+        }
+        tvProtect.text = getString(R.string.rvc_protect, "0.33")
+
+        sliderNoiseGate.addOnChangeListener { _, value, _ ->
+            tvNoiseGate.text = "降噪门控: ${value.toInt()}dB"
+            rvcRealtime.engine.noiseGateDb = value.toDouble()
+            FloatMicService.noiseGateDbRef = value.toDouble()
+        }
+        tvNoiseGate.text = "降噪门控: 0dB"
+
+        switchDenoise.setOnCheckedChangeListener { _, checked ->
+            rvcRealtime.engine.outputDenoiseEnabled = checked
+            FloatMicService.outputDenoiseRef = checked
+        }
+
+        switchVocalRange.setOnCheckedChangeListener { _, checked ->
+            rvcRealtime.engine.vocalRangeFilterEnabled = checked
+            FloatMicService.vocalRangeFilterRef = checked
+        }
+
+        sliderIndexRate.addOnChangeListener { _, value, _ ->
+            tvIndexRate.text = "索引融合: %.2f".format(value)
+            rvcRealtime.engine.indexRate = value.toDouble()
+            FloatMicService.indexRateRef = value.toDouble()
+        }
+        tvIndexRate.text = "索引融合: 0.00"
+
+        findViewById<MaterialButton>(R.id.btnSelectIndex).setOnClickListener {
+            indexPicker.launch(arrayOf("*/*"))
+        }
 
         btnRvcRealtime.setOnClickListener {
             if (rvcRealtime.isRunning.value) rvcRealtime.stop()

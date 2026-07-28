@@ -43,6 +43,8 @@ class RVCRealtime {
 
         record = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, recBuf * 4)
+        // 开启声学回声消除
+        try { android.media.audiofx.AcousticEchoCanceler.create(record!!.audioSessionId)?.enabled = true } catch (_: Exception) {}
 
         val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         track = AudioTrack.Builder()
@@ -81,9 +83,10 @@ class RVCRealtime {
 
                             val outLen = result.size * 48 / 40
                             val outShort = ShortArray(outLen)
+                            val vol = engine.volume
                             for (i in 0 until outLen) {
                                 val si = ((i.toLong() * result.size) / outLen).toInt().coerceIn(0, result.size - 1)
-                                val s32 = (result[si] * 32768f).toInt()
+                                val s32 = ((result[si] * vol) * 32768f).toInt()
                                 outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                             }
                             track!!.write(outShort, 0, outShort.size)
