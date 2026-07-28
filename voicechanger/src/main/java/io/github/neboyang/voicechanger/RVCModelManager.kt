@@ -84,23 +84,38 @@ class RVCModelManager(private val context: Context) {
         true
     }
 
-    /** 从文件夹导入 */
+    /** 从文件夹导入：复制 ONNX → /sdcard/models/<name>/ + 下载基础模型 */
     suspend fun importFromFolder(folderPath: String): ModelInfo? = withContext(Dispatchers.IO) {
         val dir = File(folderPath)
         if (!dir.isDirectory) return@withContext null
-        val modelName = dir.name
         val onnxFiles = dir.listFiles { f -> f.extension == "onnx" && f.name !in setOf("hubert.onnx", "rmvpe.onnx") }
         if (onnxFiles.isNullOrEmpty()) return@withContext null
-        if (!ensureBaseModels(dir)) return@withContext null
-        val cfgFile = File(dir, "config.json")
+
+        // 取第一个 ONNX 文件名作为模型名
+        val modelName = onnxFiles.first().nameWithoutExtension
+        val targetDir = File(modelsDir, modelName)
+        targetDir.mkdirs()
+
+        // 复制 ONNX 文件到模型目录
+        for (f in onnxFiles) {
+            val dest = File(targetDir, f.name)
+            if (!dest.exists()) f.copyTo(dest)
+        }
+
+        // 下载基础模型
+        if (!ensureBaseModels(targetDir)) return@withContext null
+
+        // config.json
+        val cfgFile = File(targetDir, "config.json")
         if (!cfgFile.exists()) {
             cfgFile.writeText(org.json.JSONObject().apply {
                 put("name", modelName); put("version", "v2"); put("f0", true)
                 put("feat_dim", 768); put("target_sr", 40000)
             }.toString())
         }
-        val info = ModelInfo(id = modelName, name = modelName)
-        scanLocalModels(); return@withContext info
+
+        scanLocalModels()
+        return@withContext ModelInfo(id = modelName, name = modelName)
     }
 
     suspend fun importModel(onnxPath: String): ModelInfo? = importFromFolder(File(onnxPath).parent)
