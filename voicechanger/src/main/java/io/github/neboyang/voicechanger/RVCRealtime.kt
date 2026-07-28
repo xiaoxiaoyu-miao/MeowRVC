@@ -61,20 +61,39 @@ class RVCRealtime {
         record!!.startRecording()
         track!!.play()
 
-        // 录音线程：持续写入环形缓冲区
+        // 录音线程：持续写入环形缓冲区（带 VAD 提前结束）
         val accumSize = sr * latencyMs / 1000
         val ringBuf = ArrayBlockingQueue<FloatArray>(4)
+        val vadThreshold = 0.003f    // 静音阈值
+        val vadFrames = 15           // 连续多少帧静音视为停顿结束
 
         recThread = Thread({
             val shortBuf = ShortArray(4096)
+            val frameHop = 160       // 每帧样本数 @48kHz
             while (_isRunning.value) {
                 val accum = FloatArray(accumSize)
                 var idx = 0
-                while (idx < accumSize && _isRunning.value) {
+                var silenceCount = 0
+                var vadTrigger = false
+                while (idx < accumSize && _isRunning.value && !vadTrigger) {
                     val read = record!!.read(shortBuf, 0, shortBuf.size)
                     if (read <= 0) continue
                     for (i in 0 until read) {
                         if (idx < accumSize) accum[idx++] = shortBuf[i] / 32768f
+                    }
+                    // VAD：每 frameHop 样本检查一次能量
+                    if (idx >= (silenceCount + 1) * frameHop) {
+                        var energy = 0f
+                        val start = silenceCount * frameHop
+                        val end = minOf(start + frameHop, idx)
+                        for (i in start until end) energy += accum[i] * accum[i]
+                        energy = kotlin.math.sqrt(energy / (end - start))
+                        if (energy < vadThreshold) {
+                            silenceCount++
+                            if (silenceCount >= vadFrames) vadTrigger = true
+                        } else {
+                            silenceCount = 0
+                        }
                     }
                 }
                 if (_isRunning.value) ringBuf.put(accum)
