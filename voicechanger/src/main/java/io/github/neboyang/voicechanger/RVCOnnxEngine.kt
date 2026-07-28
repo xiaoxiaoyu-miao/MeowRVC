@@ -535,10 +535,9 @@ class RVCOnnxEngine {
     private fun rmsMix(converted: FloatArray, noiseGateDb: Double, rate: Double, sampleRate: Int): FloatArray {
         val r = rate.coerceIn(0.0, 1.0).toFloat()
         if (r == 0f || converted.isEmpty()) return converted
-        val srcRms = rmsLevel(converted)
-        if (srcRms == 0f) return converted
+        val srcRms = maxOf(rmsLevel(converted), 1e-3f) // 防除零
         val gain = 1f + (0.5f / srcRms - 1f) * r
-        return FloatArray(converted.size) { converted[it] * gain }
+        return FloatArray(converted.size) { converted[it] * gain.coerceIn(0.1f, 5f) }
     }
 
     private fun rmsLevel(audio: FloatArray): Float {
