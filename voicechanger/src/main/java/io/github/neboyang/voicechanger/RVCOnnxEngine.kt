@@ -166,7 +166,7 @@ class RVCOnnxEngine {
             }
 
             // Detect combined voice model (any .onnx that is not hubert/rmvpe/split names)
-            val splitNames = setOf("hubert.onnx", "rmvpe.onnx", "text_encoder.onnx", "flow.onnx", "generator.onnx")
+            val splitNames = setOf("hubert.onnx", "rmvpe.onnx", "fcpe.onnx", "text_encoder.onnx", "flow.onnx", "generator.onnx")
             val combinedFiles = modelDir.listFiles { f -> f.extension == "onnx" && f.name !in splitNames }
             if (combinedFiles != null && combinedFiles.size == 1) {
                 sessions["voice"] = env.createSession(combinedFiles[0].absolutePath, opts)
