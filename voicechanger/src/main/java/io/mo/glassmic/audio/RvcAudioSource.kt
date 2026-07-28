@@ -44,10 +44,10 @@ class RvcAudioSource(
             val tmpShort = ShortArray(4096)
             val accumFrameCount = 50
             val hop = 160
-            val accumSize = accumFrameCount * hop
+            val downsampleRate = 3
+            val accumSize = accumFrameCount * hop * downsampleRate // 24000 @48kHz → 8000 @16kHz
             val accum = FloatArray(accumSize)
             var idx = 0
-            val downsampleRate = 3
 
             while (isActive && running) {
                 val rec = record ?: break

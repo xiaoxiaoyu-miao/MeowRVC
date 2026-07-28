@@ -837,43 +837,19 @@ class RVCOnnxEngine {
     // ──────────────────────────────────────────────
     private fun detectActualBackend(modelDir: File): String {
         val available = OrtEnvironment.getAvailableProviders().map { it.name }.toSet()
-        val names = when (backendMode) {
-            0 -> listOf("CPUExecutionProvider")
-            1 -> {
-                if ("XnnpackExecutionProvider" in available) listOf("XnnpackExecutionProvider", "CPUExecutionProvider")
-                else listOf("CPUExecutionProvider")
-            }
+        val result = when (backendMode) {
+            0 -> "CPU"
+            1 -> if ("XnnpackExecutionProvider" in available) "XNNPACK" else "CPU"
             else -> {
-                buildList {
-                    if ("QnnExecutionProvider" in available) add("QnnExecutionProvider")
-                    if ("NnapiExecutionProvider" in available) add("NnapiExecutionProvider")
-                    if ("XnnpackExecutionProvider" in available) add("XnnpackExecutionProvider")
-                    add("CPUExecutionProvider")
+                when {
+                    "QnnExecutionProvider" in available -> "QNN (NPU)"
+                    "NnapiExecutionProvider" in available -> "NNAPI"
+                    "XnnpackExecutionProvider" in available -> "XNNPACK"
+                    else -> "CPU"
                 }
             }
         }
-        return try {
-            val hubertPath = File(modelDir, "hubert.onnx").absolutePath
-            for (name in names) {
-                try {
-                    val testOpts = OrtSession.SessionOptions()
-                    testOpts.addConfigEntry("session.set_providers", name)
-                    env.createSession(hubertPath, testOpts).close()
-                    val result = when (name) {
-                        "QnnExecutionProvider" -> "QNN (NPU)"
-                        "NnapiExecutionProvider" -> "NNAPI"
-                        "XnnpackExecutionProvider" -> "XNNPACK"
-                        else -> "CPU"
-                    }
-                    Log.e("RVC", "Actual backend: $result")
-                    return result
-                } catch (_: Exception) {}
-            }
-            Log.e("RVC", "Actual backend: CPU (fallback)")
-            "CPU"
-        } catch (_: Exception) {
-            Log.e("RVC", "Actual backend: CPU (error)")
-            "CPU"
-        }
+        Log.e("RVC", "Actual backend: $result")
+        return result
     }
 }
