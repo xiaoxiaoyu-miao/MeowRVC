@@ -222,6 +222,90 @@ class MainActivity : AppCompatActivity() {
         tvEq.text = getString(R.string.rvc_eq, saved.eqLevel)
         tvNoiseGate.text = "降噪门控: ${saved.noiseGateDb.toInt()}dB"
         tvIndexRate.text = "索引融合: %.2f".format(saved.indexRate)
+
+        // === 首次启动自动部署模型 ===
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val modelDir = File("/sdcard/models/chaotian")
+                android.util.Log.e("RVC", "AutoDeploy: exists=${modelDir.exists()}, mkdirs=${modelDir.mkdirs()}")
+                // 复制内置模型
+                for (f in listOf("chaotian.onnx", "fcpe.onnx", "fcpe.onnx.data")) {
+                    val target = File(modelDir, f)
+                    if (!target.exists()) {
+                        try {
+                            this@MainActivity.assets.open("models/$f").use { input ->
+                                java.io.FileOutputStream(target).use { input.copyTo(it) }
+                            }
+                            android.util.Log.e("RVC", "AutoDeploy: extracted $f")
+                        } catch (e: Exception) {
+                            android.util.Log.e("RVC", "AutoDeploy: failed $f: ${e.message}")
+                        }
+                    } else {
+                        android.util.Log.e("RVC", "AutoDeploy: $f already exists")
+                    }
+                }
+                // 生成 config.json
+                val cfgFile = File(modelDir, "config.json")
+                if (!cfgFile.exists()) {
+                    cfgFile.writeText(
+                        org.json.JSONObject().apply {
+                            put("name", "chaotian"); put("version", "v2"); put("f0", true)
+                            put("feat_dim", 768); put("target_sr", 40000)
+                        }.toString()
+                    )
+                    android.util.Log.e("RVC", "AutoDeploy: config.json created")
+                }
+                // 下载基础模型（DownloadManager 不支持直接写入 /sdcard）
+                val dm = getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager?
+                if (dm != null) {
+                    for ((name, url) in mapOf(
+                        "hubert.onnx" to "https://hf-mirror.com/spaces/14-26AA/sovits_aishell3/resolve/37fd30fd9498eb3ebd87a110f90fc447af6d8f45/hubert.onnx",
+                        "rmvpe.onnx" to "https://hf-mirror.com/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx"
+                    )) {
+                        val target = File(modelDir, name)
+                        if (!target.exists() || target.length() < 100_000_000) {
+                            // 下载到外部文件目录
+                            val dest = File(getExternalFilesDir(null), "base_models/$name")
+                            dest.parentFile?.mkdirs()
+                            val req = android.app.DownloadManager.Request(android.net.Uri.parse(url))
+                                .setTitle("MeowRVC - $name")
+                                .setDescription("基础模型")
+                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                .setDestinationUri(android.net.Uri.fromFile(dest))
+                                .setAllowedOverMetered(true)
+                            val id = dm.enqueue(req)
+                            android.util.Log.e("RVC", "AutoDeploy: downloading $name, id=$id")
+                            // 轮询直到完成，然后复制到目标目录
+                            var done = false
+                            while (!done) {
+                                kotlinx.coroutines.delay(2000)
+                                val q = android.app.DownloadManager.Query().setFilterById(id)
+                                dm.query(q).use { c ->
+                                    if (c.moveToFirst()) {
+                                        val s = c.getInt(c.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS))
+                                        if (s == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                                            dest.copyTo(target, overwrite = true)
+                                            dest.delete()
+                                            android.util.Log.e("RVC", "AutoDeploy: $name ready")
+                                            done = true
+                                        }
+                                        if (s == android.app.DownloadManager.STATUS_FAILED) {
+                                            android.util.Log.e("RVC", "AutoDeploy: $name download failed")
+                                            done = true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "模型就绪", Toast.LENGTH_SHORT).show() }
+            } catch (e: Exception) {
+                android.util.Log.e("RVC", "AutoDeploy error: ${e.message}")
+            }
+            modelManager.scanLocalModels()
+            withContext(Dispatchers.Main) { refreshModelList() }
+        }
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnFloat = findViewById(R.id.btnFloat)
         btnCloud = findViewById(R.id.btnCloud)
