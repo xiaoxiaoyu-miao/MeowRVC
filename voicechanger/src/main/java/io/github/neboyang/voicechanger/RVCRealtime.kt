@@ -95,6 +95,7 @@ class RVCRealtime {
                             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                             .setBufferSizeInBytes(playBuf * 4).build()
                         if (track.state == AudioTrack.STATE_INITIALIZED) {
+                            android.util.Log.e("RVC", "Speaker routing, audioManager=${audioManager != null}")
                             audioManager?.let { am ->
                                 am.mode = AudioManager.MODE_IN_COMMUNICATION
                                 if (android.os.Build.VERSION.SDK_INT >= 31) {
