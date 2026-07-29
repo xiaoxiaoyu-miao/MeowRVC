@@ -218,12 +218,16 @@ class FloatMicService : Service() {
             while (isRecording) {
                 val r = audioRecord!!.read(buf, 0, buf.size); if (r <= 0) continue
                 list.add(buf.copyOf(r))
-                // VAD：检测静音超过 1 秒自动停止
-                var energy = 0f; val n = minOf(r, 160)
-                for (i in 0 until n) { val s = buf[i].toInt(); energy += (s * s).toFloat() }
-                energy = kotlin.math.sqrt(energy / n)
-                if (energy < 500f) silenceFrames++ else silenceFrames = 0
-                if (silenceFrames >= vadThreshold) { isRecording = false; tvStatus?.post { tvStatus?.text = "检测到停顿" } }
+                // VAD：按 160 采样帧检测静音
+                var pos = 0
+                while (pos + 160 <= r) {
+                    var energy = 0f
+                    for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
+                    energy = kotlin.math.sqrt(energy / 160f)
+                    if (energy < 500f) { silenceFrames++; if (silenceFrames >= vadThreshold) { isRecording = false; tvStatus?.post { tvStatus?.text = "检测到停顿" }; break } }
+                    else silenceFrames = 0
+                    pos += 160
+                }
             }
             audioRecord!!.stop(); audioRecord!!.release(); audioRecord = null
             val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0

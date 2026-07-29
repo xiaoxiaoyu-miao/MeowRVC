@@ -50,11 +50,15 @@ class RVCRealtime {
                 val r = rec.read(buf, 0, buf.size)
                 if (r <= 0) continue
                 list.add(buf.copyOf(r))
-                var energy = 0f; val n = minOf(r, 160)
-                for (i in 0 until n) { val s = buf[i].toInt(); energy += (s * s).toFloat() }
-                energy = kotlin.math.sqrt(energy / n)
-                if (energy < 500f) silenceFrames++ else silenceFrames = 0
-                if (silenceFrames >= vadThreshold) { _isRunning.value = false; break }
+                var pos = 0
+                while (pos + 160 <= r) {
+                    var energy = 0f
+                    for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
+                    energy = kotlin.math.sqrt(energy / 160f)
+                    if (energy < 500f) { silenceFrames++; if (silenceFrames >= vadThreshold) { _isRunning.value = false; break } }
+                    else silenceFrames = 0
+                    pos += 160
+                }
             }
 
             rec.stop(); rec.release()
