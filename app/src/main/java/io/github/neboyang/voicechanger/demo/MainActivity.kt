@@ -3,6 +3,7 @@ package io.github.neboyang.voicechanger.demo
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -320,6 +321,7 @@ class MainActivity : AppCompatActivity() {
             if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
             if (rvcRealtime.isRunning.value) rvcRealtime.stop()
             else {
+                rvcRealtime.audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
                 rvcRealtime.onError = { t -> runOnUiThread { Toast.makeText(this, "错误: ${t.message}", Toast.LENGTH_LONG).show() } }
                 withRecordPermission { rvcRealtime.start() }
             }
