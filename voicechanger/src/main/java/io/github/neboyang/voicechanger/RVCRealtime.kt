@@ -74,7 +74,8 @@ class RVCRealtime {
                 if (!_isRunning.value) break
 
                 // 停止录音（释放麦克风），播完再恢复
-                rec.stop(); rec.release()
+                try { rec.stop() } catch (_: Exception) {}
+                try { rec.release() } catch (_: Exception) {}
 
                 // === 处理 + 外放 ===
                 try {
@@ -116,7 +117,8 @@ class RVCRealtime {
                 if (_isRunning.value) rec = startRec()
             }
 
-            rec.stop(); rec.release()
+            try { rec.stop() } catch (_: Exception) {}
+            try { rec.release() } catch (_: Exception) {}
         }, "rvc-loop")
         loopThread!!.start()
     }
