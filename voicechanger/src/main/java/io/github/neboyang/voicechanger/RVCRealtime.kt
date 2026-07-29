@@ -41,9 +41,14 @@ class RVCRealtime {
         loopThread = Thread({
             val sr = 48000
             val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4)
-            rec.startRecording()
             val buf = ShortArray(bs)
+
+            fun startRec(): AudioRecord {
+                val r = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4)
+                r.startRecording(); return r
+            }
+
+            var rec = startRec()
 
             while (_isRunning.value) {
                 // === 录音阶段（直到 1 秒静音）===
@@ -68,7 +73,10 @@ class RVCRealtime {
                 }
                 if (!_isRunning.value) break
 
-                // === 处理阶段 ===
+                // 停止录音（释放麦克风），播完再恢复
+                rec.stop(); rec.release()
+
+                // === 处理 + 外放 ===
                 try {
                     val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
                     for (a in list) for (s in a) fa[o++] = s / 32768f
@@ -88,32 +96,24 @@ class RVCRealtime {
                             outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                         }
 
-                        // === 外放阶段（扬声器最大音量）===
-                        // 强制扬声器
-                        audioManager?.let { am ->
-                            am.mode = AudioManager.MODE_IN_COMMUNICATION
-                            if (android.os.Build.VERSION.SDK_INT >= 31) {
-                                val spk = am.availableCommunicationDevices?.find { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                                if (spk != null) am.setCommunicationDevice(spk) else am.isSpeakerphoneOn = true
-                            } else am.isSpeakerphoneOn = true
-                        }
-
+                        // 扬声器外放（此时无录音，系统走扬声器）
+                        audioManager?.isSpeakerphoneOn = true
                         val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
                         val track = AudioTrack.Builder()
-                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).build())
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
                             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                             .setBufferSizeInBytes(playBuf * 4).build()
                         if (track.state == AudioTrack.STATE_INITIALIZED) {
                             track.play()
                             track.write(outShort, 0, outShort.size)
                             track.stop(); track.release()
-                            audioManager?.let { am ->
-                                if (android.os.Build.VERSION.SDK_INT >= 31) am.clearCommunicationDevice()
-                                am.isSpeakerphoneOn = false; am.mode = AudioManager.MODE_NORMAL
-                            }
                         }
+                        audioManager?.isSpeakerphoneOn = false
                     }
                 } catch (e: Exception) { onError?.invoke(e) }
+
+                // 重新开始录音
+                if (_isRunning.value) rec = startRec()
             }
 
             rec.stop(); rec.release()
