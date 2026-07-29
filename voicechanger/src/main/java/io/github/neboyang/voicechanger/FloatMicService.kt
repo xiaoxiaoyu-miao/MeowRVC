@@ -71,8 +71,7 @@ class FloatMicService : Service() {
     }
 
     private fun playLatest() {
-        if (System.currentTimeMillis() - lastPlayTime < 3000) return
-        lastPlayTime = System.currentTimeMillis()
+        // 不再节流，允许自动播放
 
         Thread({
             try {
@@ -233,6 +232,11 @@ class FloatMicService : Service() {
             val inp = FloatArray(fa.size / 3) { fa[it * 3] }
             val res = engine?.infer(inp, f0UpKeyRef)
             if (res != null && res.isNotEmpty()) {
+                // 应用音量并归一化
+                val vol = volumeRef.coerceIn(0f, 1f)
+                var peak = 0f
+                for (i in res.indices) { res[i] *= vol; val a = kotlin.math.abs(res[i]); if (a > peak) peak = a }
+                if (peak > 0.95f) { val s = 0.95f / peak; for (i in res.indices) res[i] *= s }
                 File("/sdcard/rvc").mkdirs()
                 io.github.neboyang.voicechanger.WavFile.write(File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"), res, 40000)
                 tvStatus?.post { tvStatus?.text = "已保存，外放中…" }
