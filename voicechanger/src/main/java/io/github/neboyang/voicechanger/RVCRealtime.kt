@@ -102,7 +102,6 @@ class RVCRealtime {
                                     val spk = am.availableCommunicationDevices?.find { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
                                     if (spk != null) am.setCommunicationDevice(spk) else am.isSpeakerphoneOn = true
                                 } else am.isSpeakerphoneOn = true
-                                am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
                             }
                             track.play()
                             track.write(outShort, 0, outShort.size)

@@ -109,8 +109,6 @@ class FloatMicService : Service() {
                     } else {
                         audioManager?.isSpeakerphoneOn = true
                     }
-                    audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC,
-                        audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15, 0)
                 }
                 Thread.sleep(300)
 
