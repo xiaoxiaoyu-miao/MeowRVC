@@ -289,17 +289,25 @@ class RVCOnnxEngine {
                 val tHu = System.nanoTime()
                 val hubertSess = sessions["hubert"]!!
                 val hubertInputs = hubertSess.inputNames
-                val hubertOut = if (hubertInputs.contains("source")) {
+                val hubertOut = if (hubertInputs.contains("input_values")) {
+                    OnnxTensor.createTensor(env, FloatBuffer.wrap(segAudio), longArrayOf(1, segAudio.size.toLong())).use { src ->
+                        hubertSess.run(mapOf("input_values" to src))
+                    }
+                } else if (hubertInputs.contains("source") && hubertInputs.contains("padding_mask")) {
                     val padded = FloatArray(segAudio.size) { segAudio[it] }
                     val mask = ByteArray(segAudio.size) { 0 }
-                    OnnxTensor.createTensor(env, FloatBuffer.wrap(padded), longArrayOf(1, segAudio.size.toLong())).use { src ->
-                        OnnxTensor.createTensor(env, ByteBuffer.wrap(mask), longArrayOf(1, segAudio.size.toLong()), OnnxJavaType.BOOL).use { pm ->
+                    OnnxTensor.createTensor(env, FloatBuffer.wrap(padded), longArrayOf(1, 1, segAudio.size.toLong())).use { src ->
+                        OnnxTensor.createTensor(env, ByteBuffer.wrap(mask), longArrayOf(1, 1, segAudio.size.toLong()), OnnxJavaType.BOOL).use { pm ->
                             hubertSess.run(mapOf("source" to src, "padding_mask" to pm))
                         }
                     }
                 } else {
-                    OnnxTensor.createTensor(env, FloatBuffer.wrap(segAudio), longArrayOf(1, segAudio.size.toLong())).use { src ->
-                        hubertSess.run(mapOf("input_values" to src))
+                    // 尝试用第一个输入名
+                    val firstInput = hubertInputs.firstOrNull() ?: "input_values"
+                    // source 输入需要 3D [batch, channels, time]
+                    val srcShape = if (firstInput.contains("source", ignoreCase = true)) longArrayOf(1, 1, segAudio.size.toLong()) else longArrayOf(1, segAudio.size.toLong())
+                    OnnxTensor.createTensor(env, FloatBuffer.wrap(segAudio), srcShape).use { src ->
+                        hubertSess.run(mapOf(firstInput to src))
                     }
                 }
                 val featTensor = try {
