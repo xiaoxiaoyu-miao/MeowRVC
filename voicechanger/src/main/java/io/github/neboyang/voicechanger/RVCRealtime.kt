@@ -89,20 +89,21 @@ class RVCRealtime {
                         }
 
                         // === 外放阶段（扬声器最大音量）===
+                        // 强制扬声器
+                        audioManager?.let { am ->
+                            am.mode = AudioManager.MODE_IN_COMMUNICATION
+                            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                                val spk = am.availableCommunicationDevices?.find { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                                if (spk != null) am.setCommunicationDevice(spk) else am.isSpeakerphoneOn = true
+                            } else am.isSpeakerphoneOn = true
+                        }
+
                         val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
                         val track = AudioTrack.Builder()
-                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).build())
                             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                             .setBufferSizeInBytes(playBuf * 4).build()
                         if (track.state == AudioTrack.STATE_INITIALIZED) {
-                            android.util.Log.e("RVC", "Speaker routing, audioManager=${audioManager != null}")
-                            audioManager?.let { am ->
-                                am.mode = AudioManager.MODE_IN_COMMUNICATION
-                                if (android.os.Build.VERSION.SDK_INT >= 31) {
-                                    val spk = am.availableCommunicationDevices?.find { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                                    if (spk != null) am.setCommunicationDevice(spk) else am.isSpeakerphoneOn = true
-                                } else am.isSpeakerphoneOn = true
-                            }
                             track.play()
                             track.write(outShort, 0, outShort.size)
                             track.stop(); track.release()
