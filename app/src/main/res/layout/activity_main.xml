@@ -403,7 +403,7 @@
                 android:layout_height="wrap_content"
                 android:value="4"
                 android:valueFrom="1"
-                android:valueTo="8"
+                android:valueTo="16"
                 android:stepSize="1" />
 
             <TextView
