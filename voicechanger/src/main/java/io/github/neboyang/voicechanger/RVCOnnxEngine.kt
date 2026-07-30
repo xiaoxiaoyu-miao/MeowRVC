@@ -106,7 +106,7 @@ class RVCOnnxEngine {
     var protectRate: Double = 0.33
 
     /** RMS 混合率 0~1 */
-    var rmsMixRate: Double = 0.25
+    var rmsMixRate: Double = 0.0
 
     /** 外放补偿 EQ 级别 0~5（0=关，5=最强补偿） */
     var eqLevel: Int = 0
