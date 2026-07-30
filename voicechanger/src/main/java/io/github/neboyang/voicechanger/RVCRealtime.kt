@@ -49,12 +49,14 @@ class RVCRealtime {
             }
 
             var rec = startRec()
+            var prevTail = ShortArray(0)
 
             while (_isRunning.value) {
                 // === 录音阶段（直到 1 秒静音）===
                 val list = mutableListOf<ShortArray>()
                 var silenceFrames = 0
-                val vadThreshold = 300
+                val vadThreshold = engine.vadSilenceFrames
+                val vadEnergy = engine.vadEnergyThreshold
 
                 while (_isRunning.value) {
                     val r = rec.read(buf, 0, buf.size)
@@ -65,7 +67,7 @@ class RVCRealtime {
                         var energy = 0f
                         for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
                         energy = kotlin.math.sqrt(energy / 160f)
-                        if (energy < 500f) { silenceFrames++; if (silenceFrames >= vadThreshold) { pos = -1; break } }
+                        if (energy < vadEnergy) { silenceFrames++; if (silenceFrames >= vadThreshold) { pos = -1; break } }
                         else silenceFrames = 0
                         pos += 160
                     }
@@ -96,6 +98,15 @@ class RVCRealtime {
                             val s32 = ((s * vol) * 32768f).toInt()
                             outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                         }
+                        // 块间淡入淡出
+                        val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
+                        for (i in 0 until fadeLen) {
+                            val a = prevTail[prevTail.size - fadeLen + i].toInt()
+                            val b = outShort[i].toInt()
+                            val f = (i.toFloat() / fadeLen)
+                            outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
+                        }
+                        prevTail = outShort.copyOfRange((outShort.size - engine.crossfadeSamples).coerceAtLeast(0), outShort.size)
 
                         // 扬声器外放（此时无录音，系统走扬声器）
                         audioManager?.isSpeakerphoneOn = true

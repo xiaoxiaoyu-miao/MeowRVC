@@ -36,6 +36,10 @@ class SettingsManager(ctx: Context) {
         filterRadius = getInt("filterRadius", 3),
         backendMode = getInt("backendMode", 2),
         volume = getFloat("volume", 0.8f),
+        crossfadeSamples = getInt("crossfadeSamples", 2048),
+        vadEnergyThreshold = getFloat("vadEnergyThreshold", 500f),
+        vadSilenceFrames = getInt("vadSilenceFrames", 300),
+        overlapDivisor = getInt("overlapDivisor", 4),
     )
 
     data class AppSettings(
@@ -51,5 +55,9 @@ class SettingsManager(ctx: Context) {
         val filterRadius: Int = 3,
         val backendMode: Int = 2,
         val volume: Float = 0.8f,
+        val crossfadeSamples: Int = 2048,
+        val vadEnergyThreshold: Float = 500f,
+        val vadSilenceFrames: Int = 300,
+        val overlapDivisor: Int = 4,
     )
 }

@@ -212,7 +212,8 @@ class FloatMicService : Service() {
 
         recordThread = Thread({
             val list = mutableListOf<ShortArray>(); val buf = ShortArray(bs)
-            var silenceFrames = 0; val vadThreshold = 300 // 300帧 × 160/48000 = 1秒
+            var silenceFrames = 0; val vadThreshold = engine?.vadSilenceFrames ?: 300
+            val vadEnergy = engine?.vadEnergyThreshold ?: 500f
             while (isRecording) {
                 val r = audioRecord!!.read(buf, 0, buf.size); if (r <= 0) continue
                 list.add(buf.copyOf(r))
@@ -222,7 +223,7 @@ class FloatMicService : Service() {
                     var energy = 0f
                     for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
                     energy = kotlin.math.sqrt(energy / 160f)
-                    if (energy < 500f) { silenceFrames++; if (silenceFrames >= vadThreshold) { isRecording = false; tvStatus?.post { tvStatus?.text = "检测到停顿" }; break } }
+                    if (energy < vadEnergy) { silenceFrames++; if (silenceFrames >= vadThreshold) { isRecording = false; tvStatus?.post { tvStatus?.text = "检测到停顿" }; break } }
                     else silenceFrames = 0
                     pos += 160
                 }

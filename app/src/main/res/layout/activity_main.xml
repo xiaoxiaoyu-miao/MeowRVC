@@ -295,6 +295,69 @@
             </LinearLayout>
 
             <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="高级"
+                android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+            <TextView
+                android:id="@+id/tvCrossfade"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderCrossfade"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:value="2048"
+                android:valueFrom="256"
+                android:valueTo="4096"
+                android:stepSize="256" />
+
+            <TextView
+                android:id="@+id/tvVadEnergy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderVadEnergy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:value="500"
+                android:valueFrom="100"
+                android:valueTo="2000"
+                android:stepSize="100" />
+
+            <TextView
+                android:id="@+id/tvVadFrames"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderVadFrames"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:value="300"
+                android:valueFrom="50"
+                android:valueTo="600"
+                android:stepSize="50" />
+
+            <TextView
+                android:id="@+id/tvOverlap"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderOverlap"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:value="4"
+                android:valueFrom="2"
+                android:valueTo="8"
+                android:stepSize="1" />
+
+            <TextView
                 android:id="@+id/tvIndexPath"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

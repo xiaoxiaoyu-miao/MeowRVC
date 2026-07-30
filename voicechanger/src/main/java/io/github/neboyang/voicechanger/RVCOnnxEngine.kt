@@ -81,6 +81,18 @@ class RVCOnnxEngine {
     /** 是否使用 RMVPE（否则用自相关 F0） */
     var useRmvpe: Boolean = true
 
+    /** 录音重叠比例分母（4=25%, 2=50%, 8=12.5%） */
+    var overlapDivisor: Int = 4
+
+    /** VAD 能量静音阈值 */
+    var vadEnergyThreshold: Float = 500f
+
+    /** VAD 连续静音帧数（160采样/帧） */
+    var vadSilenceFrames: Int = 300
+
+    /** 块间交叉淡入淡出采样点数 */
+    var crossfadeSamples: Int = 2048
+
     /** 索引路径 */
     var indexPath: String? = null
 
