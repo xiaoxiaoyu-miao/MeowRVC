@@ -53,7 +53,7 @@ class RVCRealtime {
         val rawLatency = latencyMs.coerceIn(500, 5000)
         val chunkSize = sr * rawLatency / 1000
         val overlapSize = if (engine.overlapDivisor <= 0) 0 else chunkSize / engine.overlapDivisor
-        val ringBuf = ArrayBlockingQueue<FloatArray>(6)
+        val ringBuf = ArrayBlockingQueue<FloatArray>(12)
 
         // 持久 AudioTrack（不重复创建销毁）
         val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
@@ -61,7 +61,7 @@ class RVCRealtime {
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 12).build()
+            .setBufferSizeInBytes(playBuf * 96).build()
         track.play()
 
         // 录音线程
