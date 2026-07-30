@@ -81,6 +81,9 @@ class RVCOnnxEngine {
     /** 是否使用 RMVPE（否则用自相关 F0） */
     var useRmvpe: Boolean = true
 
+    /** FCPE 频率补偿（半音），因为 FCPE 的 cent 表和 RMVPE 不同 */
+    var fcpePitchCompensation: Int = 0
+
     /** 录音重叠比例分母（4=25%, 2=50%, 8=12.5%） */
     var overlapDivisor: Int = 4
 
@@ -172,8 +175,10 @@ class RVCOnnxEngine {
             val fcpePath = File(modelDir, "fcpe.onnx")
             if (fcpePath.exists()) {
                 sessions["fcpe"] = env.createSession(fcpePath.absolutePath, opts)
-                Log.e("RVC", "Loaded fcpe")
+                fcpePitchCompensation = -5  // FCPE cent 表与 RMVPE 不同，补偿 5 半音
+                Log.e("RVC", "Loaded fcpe, pitch compensation=$fcpePitchCompensation")
             } else {
+                fcpePitchCompensation = 0
                 Log.e("RVC", "fcpe.onnx missing, will use RMVPE or autocorrelation")
             }
 
@@ -358,7 +363,7 @@ class RVCOnnxEngine {
                 } else interp
                 val blended = applyProtect(phone, interp, filteredPitchf, protectRate)
 
-                val shift = Math.pow(2.0, (f0UpKey / 12.0)).toFloat()
+                val shift = Math.pow(2.0, ((f0UpKey + fcpePitchCompensation) / 12.0)).toFloat()
                 val shiftedPitchf = FloatArray(sl) { filteredPitchf[it] * shift }
 
                 if (isCombinedModel) {

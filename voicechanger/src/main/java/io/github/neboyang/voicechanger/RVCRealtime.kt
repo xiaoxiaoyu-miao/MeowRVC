@@ -52,7 +52,7 @@ class RVCRealtime {
         val buf = ShortArray(bs)
         val rawLatency = latencyMs.coerceIn(500, 5000)
         val chunkSize = sr * rawLatency / 1000
-        val overlapSize = chunkSize / 8  // 12.5% 重叠，减少高频加倍
+        val overlapSize = chunkSize / maxOf(engine.overlapDivisor, 2)
         val ringBuf = ArrayBlockingQueue<FloatArray>(6)
 
         // 持久 AudioTrack（不重复创建销毁）
