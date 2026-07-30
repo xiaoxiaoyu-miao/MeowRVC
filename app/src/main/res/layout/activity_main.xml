@@ -302,17 +302,40 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:gravity="center_vertical"
                 android:orientation="horizontal">
                 <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="音高提取 "
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/pitchSelector"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="RMVPE 音高提取" />
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/switchRmvpe"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true" />
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/pitchFcpe"
+                        style="@style/Widget.Material3.Chip.Assist"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="FCPE"
+                        android:checked="true" />
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/pitchRmvpe"
+                        style="@style/Widget.Material3.Chip.Assist"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="RMVPE" />
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/pitchAuto"
+                        style="@style/Widget.Material3.Chip.Assist"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="自相关" />
+                </com.google.android.material.chip.ChipGroup>
             </LinearLayout>
 
             <TextView

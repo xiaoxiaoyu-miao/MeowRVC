@@ -54,7 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvIndexPath: TextView
     private lateinit var switchDenoise: SwitchCompat
     private lateinit var switchVocalRange: SwitchCompat
-    private lateinit var switchRmvpe: SwitchCompat
+    private lateinit var pitchSelector: ChipGroup
     private lateinit var sliderCrossfade: Slider
     private lateinit var tvCrossfade: TextView
     private lateinit var sliderVadEnergy: Slider
@@ -197,7 +197,7 @@ class MainActivity : AppCompatActivity() {
         sliderIndexRate = findViewById(R.id.sliderIndexRate)
         switchDenoise = findViewById(R.id.switchDenoise)
         switchVocalRange = findViewById(R.id.switchVocalRange)
-        switchRmvpe = findViewById(R.id.switchRmvpe)
+        pitchSelector = findViewById(R.id.pitchSelector)
         tvCrossfade = findViewById(R.id.tvCrossfade)
         sliderCrossfade = findViewById(R.id.sliderCrossfade)
         tvVadEnergy = findViewById(R.id.tvVadEnergy)
@@ -229,7 +229,12 @@ class MainActivity : AppCompatActivity() {
         sliderNoiseGate.value = saved.noiseGateDb
         switchDenoise.isChecked = saved.outputDenoise
         switchVocalRange.isChecked = saved.vocalRangeFilter
-        switchRmvpe.isChecked = true
+        rvcRealtime.engine.pitchExtractor = saved.pitchExtractor
+        when (saved.pitchExtractor) {
+            1 -> pitchSelector.check(R.id.pitchRmvpe)
+            2 -> pitchSelector.check(R.id.pitchAuto)
+            else -> pitchSelector.check(R.id.pitchFcpe)
+        }
         sliderIndexRate.value = saved.indexRate
         tvF0Key.text = getString(R.string.rvc_f0_key, saved.f0UpKey)
         tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(saved.protectRate))
@@ -332,8 +337,13 @@ class MainActivity : AppCompatActivity() {
             rvcRealtime.engine.vocalRangeFilterEnabled = checked; settings.save("vocalRangeFilter", checked)
             FloatMicService.vocalRangeFilterRef = checked
         }
-        switchRmvpe.setOnCheckedChangeListener { _, checked ->
-            rvcRealtime.engine.useRmvpe = checked; settings.save("useRmvpe", checked)
+        pitchSelector.setOnCheckedStateChangeListener { group, _ ->
+            val mode = when (group.checkedChipId) {
+                R.id.pitchRmvpe -> 1
+                R.id.pitchAuto -> 2
+                else -> 0
+            }
+            rvcRealtime.engine.pitchExtractor = mode; settings.save("pitchExtractor", mode)
         }
         sliderCrossfade.addOnChangeListener { _, value, _ ->
             val v = value.toInt(); rvcRealtime.engine.crossfadeSamples = v; settings.save("crossfadeSamples", v)

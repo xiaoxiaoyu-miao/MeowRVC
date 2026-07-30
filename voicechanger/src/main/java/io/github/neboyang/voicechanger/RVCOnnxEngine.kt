@@ -78,10 +78,10 @@ class RVCOnnxEngine {
     /** F0 中值滤波半径 */
     var filterRadius: Int = 3
 
-    /** 是否使用 RMVPE（否则用自相关 F0） */
-    var useRmvpe: Boolean = true
+    /** 音高提取器: 0=FCPE, 1=RMVPE, 2=自相关 */
+    var pitchExtractor: Int = 0
 
-    /** FCPE 频率补偿（半音），因为 FCPE 的 cent 表和 RMVPE 不同 */
+    /** FCPE 频率补偿（半音），加载 FCPE 时自动设置 */
     var fcpePitchCompensation: Int = 0
 
     /** 录音重叠比例分母（4=25%, 2=50%, 8=12.5%） */
@@ -347,12 +347,14 @@ class RVCOnnxEngine {
                     System.arraycopy(featArr, srcPos, interp, t * FEAT_DIM, FEAT_DIM)
                 }
 
-                // F0: RMVPE > FCPE > autocorrelation
+                // F0: 按 pitchExtractor 选择
                 val tF0 = System.nanoTime()
-                val pitchf = if (sessions.containsKey("rmvpe") && useRmvpe) {
-                    extractRmvpePitch(segAudio, sl)
-                } else {
-                    autocorrelateF0(segAudio, segSamples, sl, hop)
+                val pitchf = when (pitchExtractor) {
+                    1 -> if (sessions.containsKey("rmvpe")) extractRmvpePitch(segAudio, sl) else autocorrelateF0(segAudio, segSamples, sl, hop)
+                    2 -> autocorrelateF0(segAudio, segSamples, sl, hop)
+                    else -> if (sessions.containsKey("fcpe")) extractFcpePitch(segAudio, sl)
+                        else if (sessions.containsKey("rmvpe")) extractRmvpePitch(segAudio, sl)
+                        else autocorrelateF0(segAudio, segSamples, sl, hop)
                 }
                 val filteredPitchf = applyMedianFilter(pitchf, filterRadius)
                 Log.e("RVC", "  f0 ${(System.nanoTime()-tF0)/1_000_000}ms")
