@@ -714,7 +714,7 @@ class RVCOnnxEngine {
                     val conf = if (idx < outArr.size) outArr[idx] else 0f
                     if (conf > bestConf) { bestConf = conf; bestBin = b }
                 }
-                allPitch[start + i] = if (bestConf >= 0.005f) rmvpeBinToFreq(bestBin) else 0f
+                allPitch[start + i] = if (bestConf >= 0.0005f) rmvpeBinToFreq(bestBin) else 0f
             }
             input.close(); result.close()
         }
