@@ -50,7 +50,7 @@ class RVCRealtime {
         val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4)
         rec.startRecording()
         val buf = ShortArray(bs)
-        val rawLatency = latencyMs.coerceIn(200, 5000)
+        val rawLatency = latencyMs.coerceIn(500, 5000)
         val chunkSize = sr * rawLatency / 1000
         val overlapSize = chunkSize / engine.overlapDivisor
         val ringBuf = ArrayBlockingQueue<FloatArray>(6)
@@ -77,7 +77,12 @@ class RVCRealtime {
         var prevTail = ShortArray(0)
         while (_isRunning.value) {
             val chunk = try { ringBuf.take() } catch (_: Exception) { break }
-            val inp = FloatArray(chunk.size / 3) { (chunk[it * 3] + chunk[it * 3 + 1] + chunk[it * 3 + 2]) / 3f }
+            val inp = FloatArray(chunk.size / 3) {
+                val i = it * 3
+                (chunk[i] + chunk[i + 1] + chunk[i + 2]) / 3f * 0.5f +
+                (if (i > 0) chunk[i - 1] else chunk[i]) * 0.25f +
+                (if (i + 3 < chunk.size) chunk[i + 3] else chunk[i + 2]) * 0.25f
+            }
             try {
                 val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
@@ -139,7 +144,13 @@ class RVCRealtime {
             try {
                 val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
                 for (a in list) for (s in a) fa[o++] = s / 32768f
-                val res = engine.infer(FloatArray(fa.size / 3) { fa[it * 3] }, f0UpKey)
+                val inp = FloatArray(fa.size / 3) {
+                    val i = it * 3
+                    (fa[i] + fa[i + 1] + fa[i + 2]) / 3f * 0.5f +
+                    (if (i > 0) fa[i - 1] else fa[i]) * 0.25f +
+                    (if (i + 3 < fa.size) fa[i + 3] else fa[i + 2]) * 0.25f
+                }
+                val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
                     val outLen = (res.size * 48 / 40).coerceAtMost(total)
                     val outShort = ShortArray(outLen); val vol = engine.volume
