@@ -373,12 +373,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnRvcRealtime.text = "快速变声"
+        val modeSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.modeSwitch)
+        modeSwitch.setOnCheckedStateChangeListener { group, _ ->
+            rvcRealtime.realtimeMode = group.checkedChipId == R.id.modeRealtime
+        }
+
+        btnRvcRealtime.text = "开始"
 
         lifecycleScope.launch {
             rvcRealtime.isRunning.collect { running ->
-                btnRvcRealtime.text = if (running) "录音中…点此停止" else "快速变声"
-                tvStatus.text = if (running) "录音中(停顿自动结束)" else "就绪"
+                val mode = if (rvcRealtime.realtimeMode) "实时" else "录音"
+                btnRvcRealtime.text = if (running) "${mode}中…停止" else "开始${mode}变声"
+                tvStatus.text = if (running) "${mode}变声运行中" else "就绪"
             }
         }
 

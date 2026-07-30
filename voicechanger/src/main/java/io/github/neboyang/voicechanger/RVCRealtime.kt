@@ -1,9 +1,7 @@
 package io.github.neboyang.voicechanger
 
 import android.Manifest
-import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -13,6 +11,7 @@ import androidx.annotation.RequiresPermission
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import java.util.concurrent.ArrayBlockingQueue
 
 class RVCRealtime {
     private val _isRunning = MutableStateFlow(false)
@@ -23,6 +22,7 @@ class RVCRealtime {
     var latencyMs: Int = 1000
     var onError: ((Throwable) -> Unit)? = null
     var audioManager: AudioManager? = null
+    var realtimeMode: Boolean = false  // true=实时, false=VAD
 
     private var loopThread: Thread? = null
 
@@ -39,105 +39,149 @@ class RVCRealtime {
         _isRunning.value = true
 
         loopThread = Thread({
-            val sr = 48000
-            val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val buf = ShortArray(bs)
-
-            fun startRec(): AudioRecord {
-                val r = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4)
-                r.startRecording(); return r
-            }
-
-            var rec = startRec()
-            var prevTail = ShortArray(0)
-
-            while (_isRunning.value) {
-                // === 录音阶段（直到 1 秒静音）===
-                val list = mutableListOf<ShortArray>()
-                var silenceFrames = 0
-                val vadThreshold = engine.vadSilenceFrames
-                val vadEnergy = engine.vadEnergyThreshold
-
-                while (_isRunning.value) {
-                    val r = rec.read(buf, 0, buf.size)
-                    if (r <= 0) continue
-                    list.add(buf.copyOf(r))
-                    var pos = 0
-                    while (pos + 160 <= r) {
-                        var energy = 0f
-                        for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
-                        energy = kotlin.math.sqrt(energy / 160f)
-                        if (energy < vadEnergy) { silenceFrames++; if (silenceFrames >= vadThreshold) { pos = -1; break } }
-                        else silenceFrames = 0
-                        pos += 160
-                    }
-                    if (pos == -1) break
-                }
-                if (!_isRunning.value) break
-
-                // 停止录音（释放麦克风），播完再恢复
-                try { rec.stop() } catch (_: Exception) {}
-                try { rec.release() } catch (_: Exception) {}
-
-                // === 处理 + 外放 ===
-                try {
-                    val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
-                    for (a in list) for (s in a) fa[o++] = s / 32768f
-                    val inp = FloatArray(fa.size / 3) { fa[it * 3] }
-                    val res = engine.infer(inp, f0UpKey)
-
-                    if (res != null && res.isNotEmpty()) {
-                        val outLen = (res.size * 48 / 40).coerceAtMost(total)
-                        val outShort = ShortArray(outLen)
-                        val vol = engine.volume
-                        for (i in 0 until outLen) {
-                            val pos = (i.toDouble() * res.size) / outLen
-                            val si = pos.toInt().coerceIn(0, res.size - 2)
-                            val frac = (pos - si).toFloat()
-                            val s = res[si] * (1f - frac) + res[si + 1] * frac
-                            val s32 = ((s * vol) * 32768f).toInt()
-                            outShort[i] = s32.coerceIn(-32768, 32767).toShort()
-                        }
-                        // 块间淡入淡出
-                        val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
-                        for (i in 0 until fadeLen) {
-                            val a = prevTail[prevTail.size - fadeLen + i].toInt()
-                            val b = outShort[i].toInt()
-                            val f = (i.toFloat() / fadeLen)
-                            outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
-                        }
-                        prevTail = outShort.copyOfRange((outShort.size - engine.crossfadeSamples).coerceAtLeast(0), outShort.size)
-
-                        // 扬声器外放（此时无录音，系统走扬声器）
-                        audioManager?.isSpeakerphoneOn = true
-                        val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                        val track = AudioTrack.Builder()
-                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
-                            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                            .setBufferSizeInBytes(playBuf * 4).build()
-                        if (track.state == AudioTrack.STATE_INITIALIZED) {
-                            track.play()
-                            track.write(outShort, 0, outShort.size)
-                            track.stop(); track.release()
-                        }
-                        audioManager?.isSpeakerphoneOn = false
-                    }
-                } catch (e: Exception) { onError?.invoke(e) }
-
-                // 重新开始录音
-                if (_isRunning.value) rec = startRec()
-            }
-
-            try { rec.stop() } catch (_: Exception) {}
-            try { rec.release() } catch (_: Exception) {}
+            if (realtimeMode) realtimeLoop() else vadLoop()
         }, "rvc-loop")
         loopThread!!.start()
+    }
+
+    private fun realtimeLoop() {
+        val sr = 48000
+        val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4)
+        rec.startRecording()
+        val buf = ShortArray(bs)
+        val rawLatency = latencyMs.coerceIn(200, 5000)
+        val chunkSize = sr * rawLatency / 1000
+        val overlapSize = chunkSize / engine.overlapDivisor
+        val ringBuf = ArrayBlockingQueue<FloatArray>(6)
+
+        // 录音线程
+        val recThread = Thread({
+            var prevOverlap = FloatArray(0)
+            while (_isRunning.value) {
+                val chunk = FloatArray(chunkSize)
+                var idx = 0
+                for (s in prevOverlap) chunk[idx++] = s
+                while (idx < chunkSize && _isRunning.value) {
+                    val r = rec.read(buf, 0, buf.size)
+                    if (r <= 0) continue
+                    for (i in 0 until r) { if (idx < chunkSize) chunk[idx++] = buf[i] / 32768f }
+                }
+                val tail = (chunk.size - overlapSize).coerceAtLeast(0)
+                prevOverlap = chunk.copyOfRange(tail, chunk.size)
+                if (_isRunning.value) ringBuf.put(chunk)
+            }
+        }, "rvc-record").apply { start() }
+
+        // 处理+播放线程
+        var prevTail = ShortArray(0)
+        while (_isRunning.value) {
+            val chunk = try { ringBuf.take() } catch (_: Exception) { break }
+            val inp = FloatArray(chunk.size / 3) { (chunk[it * 3] + chunk[it * 3 + 1] + chunk[it * 3 + 2]) / 3f }
+            try {
+                val res = engine.infer(inp, f0UpKey)
+                if (res != null && res.isNotEmpty()) {
+                    val outLen = (res.size * 48 / 40).coerceAtMost(chunkSize)
+                    val outShort = ShortArray(outLen)
+                    val vol = engine.volume
+                    for (i in 0 until outLen) {
+                        val pos = (i.toDouble() * res.size) / outLen
+                        val si = pos.toInt().coerceIn(0, res.size - 2)
+                        val frac = (pos - si).toFloat()
+                        val s = res[si] * (1f - frac) + res[si + 1] * frac
+                        val s32 = ((s * vol) * 32768f).toInt()
+                        outShort[i] = s32.coerceIn(-32768, 32767).toShort()
+                    }
+                    val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
+                    for (i in 0 until fadeLen) {
+                        val a = prevTail[prevTail.size - fadeLen + i].toInt()
+                        val b = outShort[i].toInt()
+                        val f = (i.toFloat() / fadeLen)
+                        outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
+                    }
+                    prevTail = outShort.copyOfRange((outShort.size - engine.crossfadeSamples).coerceAtLeast(0), outShort.size)
+                    playAudio(outShort, sr)
+                }
+            } catch (e: Exception) { onError?.invoke(e) }
+        }
+        try { rec.stop(); rec.release() } catch (_: Exception) {}
+        recThread.join(2000)
+    }
+
+    private fun vadLoop() {
+        val sr = 48000
+        val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val buf = ShortArray(bs)
+        fun startRec() = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4).apply { startRecording() }
+        var rec = startRec()
+        var prevTail = ShortArray(0)
+
+        while (_isRunning.value) {
+            val list = mutableListOf<ShortArray>()
+            var silenceFrames = 0
+            val vadTh = engine.vadSilenceFrames
+            val vadEn = engine.vadEnergyThreshold
+            while (_isRunning.value) {
+                val r = rec.read(buf, 0, buf.size); if (r <= 0) continue
+                list.add(buf.copyOf(r))
+                var pos = 0
+                while (pos + 160 <= r) {
+                    var energy = 0f
+                    for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
+                    energy = kotlin.math.sqrt(energy / 160f)
+                    if (energy < vadEn) { silenceFrames++; if (silenceFrames >= vadTh) { pos = -1; break } }
+                    else silenceFrames = 0; pos += 160
+                }
+                if (pos == -1) break
+            }
+            if (!_isRunning.value) break
+            try { rec.stop(); rec.release() } catch (_: Exception) {}
+            try {
+                val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
+                for (a in list) for (s in a) fa[o++] = s / 32768f
+                val res = engine.infer(FloatArray(fa.size / 3) { fa[it * 3] }, f0UpKey)
+                if (res != null && res.isNotEmpty()) {
+                    val outLen = (res.size * 48 / 40).coerceAtMost(total)
+                    val outShort = ShortArray(outLen); val vol = engine.volume
+                    for (i in 0 until outLen) {
+                        val pos = (i.toDouble() * res.size) / outLen
+                        val si = pos.toInt().coerceIn(0, res.size - 2)
+                        val frac = (pos - si).toFloat()
+                        val s = res[si] * (1f - frac) + res[si + 1] * frac
+                        outShort[i] = ((s * vol) * 32768f).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
+                    for (i in 0 until fadeLen) {
+                        val a = prevTail[prevTail.size - fadeLen + i].toInt()
+                        val b = outShort[i].toInt()
+                        val f = (i.toFloat() / fadeLen)
+                        outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
+                    }
+                    prevTail = outShort.copyOfRange((outShort.size - engine.crossfadeSamples).coerceAtLeast(0), outShort.size)
+                    playAudio(outShort, sr)
+                }
+            } catch (e: Exception) { onError?.invoke(e) }
+            if (_isRunning.value) rec = startRec()
+        }
+        try { rec.stop(); rec.release() } catch (_: Exception) {}
+    }
+
+    private fun playAudio(data: ShortArray, sr: Int) {
+        audioManager?.isSpeakerphoneOn = true
+        val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setBufferSizeInBytes(playBuf * 4).build()
+        if (track.state == AudioTrack.STATE_INITIALIZED) {
+            track.play(); track.write(data, 0, data.size); track.stop(); track.release()
+        }
+        audioManager?.isSpeakerphoneOn = false
     }
 
     fun stop() {
         _isRunning.value = false
         loopThread?.join(5000); loopThread = null
     }
-
     fun release() { stop(); engine.unload() }
 }
