@@ -402,7 +402,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:value="4"
-                android:valueFrom="1"
+                android:valueFrom="0"
                 android:valueTo="16"
                 android:stepSize="1" />
 

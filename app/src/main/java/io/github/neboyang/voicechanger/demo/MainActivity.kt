@@ -254,7 +254,7 @@ class MainActivity : AppCompatActivity() {
         tvCrossfade.text = "淡入淡出: ${saved.crossfadeSamples} 采样"
         tvVadEnergy.text = "VAD 阈值: ${saved.vadEnergyThreshold.toInt()}"
         tvVadFrames.text = "VAD 静音帧: ${saved.vadSilenceFrames} (${saved.vadSilenceFrames * 160 / 48000}秒)"
-        tvOverlap.text = "录音重叠: 1/${saved.overlapDivisor} (${(100 / saved.overlapDivisor)}%)"
+        tvOverlap.text = if (saved.overlapDivisor == 0) "录音重叠: 关闭" else "录音重叠: 1/${saved.overlapDivisor} (${100 / saved.overlapDivisor}%)"
 
 
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
@@ -359,7 +359,7 @@ class MainActivity : AppCompatActivity() {
         }
         sliderOverlap.addOnChangeListener { _, value, _ ->
             val v = value.toInt(); rvcRealtime.engine.overlapDivisor = v; settings.save("overlapDivisor", v)
-            tvOverlap.text = "录音重叠: 1/$v (${100 / v}%)"
+            tvOverlap.text = if (v == 0) "录音重叠: 关闭" else "录音重叠: 1/$v (${100 / v}%)"
         }
 
         sliderIndexRate.addOnChangeListener { _, value, _ ->
