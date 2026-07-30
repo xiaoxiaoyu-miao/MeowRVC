@@ -86,12 +86,7 @@ class RVCRealtime {
         var prevTail = ShortArray(0)
         while (_isRunning.value) {
             val chunk = try { ringBuf.take() } catch (_: Exception) { break }
-            val inp = FloatArray(chunk.size / 3) {
-                val i = it * 3
-                (chunk[i] + chunk[i + 1] + chunk[i + 2]) / 3f * 0.5f +
-                (if (i > 0) chunk[i - 1] else chunk[i]) * 0.25f +
-                (if (i + 3 < chunk.size) chunk[i + 3] else chunk[i + 2]) * 0.25f
-            }
+            val inp = FloatArray(chunk.size / 3) { (chunk[it * 3] + chunk[it * 3 + 1] + chunk[it * 3 + 2]) / 3f }
             try {
                 val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
@@ -161,12 +156,7 @@ class RVCRealtime {
             try {
                 val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
                 for (a in list) for (s in a) fa[o++] = s / 32768f
-                val inp = FloatArray(fa.size / 3) {
-                    val i = it * 3
-                    (fa[i] + fa[i + 1] + fa[i + 2]) / 3f * 0.5f +
-                    (if (i > 0) fa[i - 1] else fa[i]) * 0.25f +
-                    (if (i + 3 < fa.size) fa[i + 3] else fa[i + 2]) * 0.25f
-                }
+                val inp = FloatArray(fa.size / 3) { (fa[it * 3] + fa[it * 3 + 1] + fa[it * 3 + 2]) / 3f }
                 val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
                     val outLen = (res.size * 48 / 40).coerceAtMost(total)

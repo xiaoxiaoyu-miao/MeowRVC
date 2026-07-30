@@ -323,20 +323,20 @@
                     app:selectionRequired="true">
                     <com.google.android.material.chip.Chip
                         android:id="@+id/pitchFcpe"
-                        style="@style/Widget.Material3.Chip.Assist"
+                        style="@style/Widget.Material3.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="FCPE"
                         android:checked="true" />
                     <com.google.android.material.chip.Chip
                         android:id="@+id/pitchRmvpe"
-                        style="@style/Widget.Material3.Chip.Assist"
+                        style="@style/Widget.Material3.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="RMVPE" />
                     <com.google.android.material.chip.Chip
                         android:id="@+id/pitchAuto"
-                        style="@style/Widget.Material3.Chip.Assist"
+                        style="@style/Widget.Material3.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="自相关" />

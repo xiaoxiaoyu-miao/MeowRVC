@@ -283,7 +283,7 @@ class MainActivity : AppCompatActivity() {
         val backends = rvcRealtime.engine.getAvailableBackends()
         backendSwitch.removeAllViews()
         for ((mode, label) in backends) {
-            val chip = com.google.android.material.chip.Chip(this)
+            val chip = com.google.android.material.chip.Chip(this, null, com.google.android.material.R.style.Widget_Material3_Chip_Filter)
             chip.text = label
             chip.isCheckable = true
             chip.setOnClickListener { reloadWithBackend(mode) }
