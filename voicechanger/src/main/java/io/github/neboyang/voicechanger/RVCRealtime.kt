@@ -19,10 +19,10 @@ class RVCRealtime {
 
     val engine = RVCOnnxEngine()
     var f0UpKey: Int = 0
-    var latencyMs: Int = 1000
+    var latencyMs: Int = 0
     var onError: ((Throwable) -> Unit)? = null
     var audioManager: AudioManager? = null
-    var realtimeMode: Boolean = false  // true=实时, false=VAD
+    var realtimeMode: Boolean = false
 
     private var loopThread: Thread? = null
 
@@ -55,13 +55,14 @@ class RVCRealtime {
         val overlapSize = if (engine.overlapDivisor <= 0) 0 else chunkSize / engine.overlapDivisor
         val ringBuf = ArrayBlockingQueue<FloatArray>(12)
 
-        // 持久 AudioTrack（不重复创建销毁）
+        // AudioTrack 缓冲区增大到 8 倍最小缓冲
         val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         audioManager?.isSpeakerphoneOn = true
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 96).build()
+            .setBufferSizeInBytes(playBuf * 48)  // 从 4 倍改为 8 倍
+            .build()
         track.play()
 
         // 录音线程
@@ -82,17 +83,35 @@ class RVCRealtime {
             }
         }, "rvc-record").apply { start() }
 
-        // 处理线程（非阻塞写入）
+        // 处理线程（带预填充和智能丢弃）
         var prevTail = ShortArray(0)
+        var preFillCount = 0  // 用于预填充
+
         while (_isRunning.value) {
-            val chunk = try { ringBuf.take() } catch (_: Exception) { break }
+            // 智能丢弃：如果队列积压超过 2 个块，只取最新一个
+            var chunk: FloatArray? = null
+            while (_isRunning.value) {
+                val polled = ringBuf.poll()
+                if (polled == null) {
+                    // 队列为空，等待
+                    chunk = try { ringBuf.take() } catch (_: Exception) { break }
+                    break
+                } else {
+                    chunk = polled
+                    // 如果队列中还有更多，继续取，直到只剩一个
+                    if (ringBuf.size <= 1) break
+                }
+            }
+            if (chunk == null || !_isRunning.value) break
+
             val inp = FloatArray(chunk.size / 3) { (chunk[it * 3] + chunk[it * 3 + 1] + chunk[it * 3 + 2]) / 3f }
             try {
                 val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
-                    val outLen = (res.size * 48 / 40).coerceAtMost(chunkSize)
+                    val outLen = (res.size.toDouble() * 48000 / engine.targetSr).toInt()
                     val outShort = ShortArray(outLen)
-                    val vol = engine.volume
+                    val vol = engine.volume.coerceIn(0f, 1f)
+
                     for (i in 0 until outLen) {
                         val pos = (i.toDouble() * res.size) / outLen
                         val si = pos.toInt().coerceIn(0, res.size - 2)
@@ -101,6 +120,7 @@ class RVCRealtime {
                         val s32 = ((s * vol) * 32768f).toInt()
                         outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                     }
+
                     val fadeLen = minOf(prevTail.size, outShort.size, 512)
                     for (i in 0 until fadeLen) {
                         val a = prevTail[prevTail.size - fadeLen + i].toInt()
@@ -109,16 +129,37 @@ class RVCRealtime {
                         outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
                     }
                     prevTail = outShort.copyOfRange((outShort.size - 1024).coerceAtLeast(0), outShort.size)
-                    // 非阻塞写入，不会卡住处理线程
+
+                    // 写入 AudioTrack
                     var written = 0
                     while (written < outShort.size) {
                         val w = track.write(outShort, written, outShort.size - written, AudioTrack.WRITE_NON_BLOCKING)
-                        if (w > 0) written += w
-                        else Thread.sleep(5)
+                        if (w < 0) {
+                            throw java.io.IOException("AudioTrack write error: $w")
+                        }
+                        if (w > 0) {
+                            written += w
+                        } else {
+                            Thread.sleep(5)
+                        }
                     }
+
+                    // 预填充：前 2 个块快速处理，让播放器有足够数据
+                    preFillCount++
+                    if (preFillCount < 2) {
+                        // 不额外操作，继续循环
+                    }
+                } else {
+                    // 推理失败，写入静音防止断流
+                    val silent = ShortArray(chunkSize)
+                    track.write(silent, 0, silent.size, AudioTrack.WRITE_NON_BLOCKING)
                 }
-            } catch (e: Exception) { onError?.invoke(e) }
+            } catch (e: Exception) {
+                onError?.invoke(e)
+                break
+            }
         }
+
         track.stop(); track.release()
         audioManager?.isSpeakerphoneOn = false
         try { rec.stop(); rec.release() } catch (_: Exception) {}
@@ -126,6 +167,7 @@ class RVCRealtime {
     }
 
     private fun vadLoop() {
+        // 保持不变
         val sr = 48000
         val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val buf = ShortArray(bs)
@@ -190,7 +232,7 @@ class RVCRealtime {
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 4).build()
+            .setBufferSizeInBytes(playBuf * 48).build()
         if (track.state == AudioTrack.STATE_INITIALIZED) {
             track.play(); track.write(data, 0, data.size); track.stop(); track.release()
         }

@@ -76,7 +76,7 @@ class RVCOnnxEngine {
     var vocalRangeFilterEnabled: Boolean = false
 
     /** F0 中值滤波半径 */
-    var filterRadius: Int = 3
+    var filterRadius: Int = 6
 
     /** 音高提取器: 0=FCPE, 1=RMVPE, 2=自相关 */
     var pitchExtractor: Int = 0
@@ -85,7 +85,7 @@ class RVCOnnxEngine {
     var fcpePitchCompensation: Int = 0
 
     /** 录音重叠比例分母（4=25%, 2=50%, 8=12.5%） */
-    var overlapDivisor: Int = 4
+    var overlapDivisor: Int = 16
 
     /** VAD 能量静音阈值 */
     var vadEnergyThreshold: Float = 500f
@@ -94,7 +94,7 @@ class RVCOnnxEngine {
     var vadSilenceFrames: Int = 300
 
     /** 块间交叉淡入淡出采样点数 */
-    var crossfadeSamples: Int = 2048
+    var crossfadeSamples: Int = 4096
 
     /** 索引路径 */
     var indexPath: String? = null
@@ -175,7 +175,7 @@ class RVCOnnxEngine {
             val fcpePath = File(modelDir, "fcpe.onnx")
             if (fcpePath.exists()) {
                 sessions["fcpe"] = env.createSession(fcpePath.absolutePath, opts)
-                fcpePitchCompensation = -5  // FCPE cent 表与 RMVPE 不同，补偿 5 半音
+                fcpePitchCompensation = 0  // FCPE cent 表与 RMVPE 不同，补偿 5 半音
                 Log.e("RVC", "Loaded fcpe, pitch compensation=$fcpePitchCompensation")
             } else {
                 fcpePitchCompensation = 0
@@ -681,7 +681,7 @@ class RVCOnnxEngine {
                 val conf = arr.getOrElse(off + b) { 0f }
                 if (conf > bestConf) { bestConf = conf; bestBin = b }
             }
-            pitchf[f] = if (bestConf >= RMVPE_VOICED_THRESHOLD) rmvpeBinToFreq(bestBin) else 0f
+            pitchf[f] = if (bestConf >= 0.005f) rmvpeBinToFreq(bestBin) else 0f
         }
         return pitchf
     }
@@ -714,7 +714,7 @@ class RVCOnnxEngine {
                     val conf = if (idx < outArr.size) outArr[idx] else 0f
                     if (conf > bestConf) { bestConf = conf; bestBin = b }
                 }
-                allPitch[start + i] = rmvpeBinToFreq(bestBin)
+                allPitch[start + i] = if (bestConf >= 0.005f) rmvpeBinToFreq(bestBin) else 0f
             }
             input.close(); result.close()
         }

@@ -3,6 +3,7 @@ package io.github.neboyang.voicechanger
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -71,8 +72,6 @@ class FloatMicService : Service() {
     }
 
     private fun playLatest() {
-        // 不再节流，允许自动播放
-
         Thread({
             try {
                 val dir = File("/sdcard/rvc")
@@ -146,9 +145,7 @@ class FloatMicService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotifChannel()
-        startForeground(1001, Notification.Builder(this, "rvc_float")
-            .setContentTitle("MeowRVC").setContentText("悬浮窗运行中")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now).build())
+        startForeground(1001, buildNotification())
 
         floatView = LayoutInflater.from(this).inflate(R.layout.float_mic, null)
         tvStatus = floatView.findViewById(R.id.tvFloatStatus)
@@ -175,23 +172,71 @@ class FloatMicService : Service() {
         floatView.setOnClickListener {
             if (engine?.isLoaded() != true) {
                 Thread {
-                    for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.apply { noiseLevel = noiseLevelRef; eqLevel = eqLevelRef; volume = volumeRef; noiseGateDb = noiseGateDbRef; outputDenoiseEnabled = outputDenoiseRef; vocalRangeFilterEnabled = vocalRangeFilterRef; indexRate = indexRateRef; protectRate = protectRateRef; loadIndex(indexPathRef) }; Thread.sleep(1000) }
+                    for (i in 0..10) {
+                        if (engine?.isLoaded() == true) break
+                        engine = engineRef
+                        engine?.apply {
+                            noiseLevel = noiseLevelRef
+                            eqLevel = eqLevelRef
+                            volume = volumeRef
+                            noiseGateDb = noiseGateDbRef
+                            outputDenoiseEnabled = outputDenoiseRef
+                            vocalRangeFilterEnabled = vocalRangeFilterRef
+                            indexRate = indexRateRef
+                            protectRate = protectRateRef
+                            loadIndex(indexPathRef)
+                        }
+                        Thread.sleep(1000)
+                    }
                     floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
-                }.start(); return@setOnClickListener
+                }.start()
+                return@setOnClickListener
             }
-            if (isRecording) { isRecording = false; isOurRecording = false; recordThread?.join(3000); tvStatus?.text = "点录制" }
-            else startRecord()
+            if (isRecording) {
+                isRecording = false
+                isOurRecording = false
+                recordThread?.join(3000)
+                tvStatus?.text = "点录制"
+            } else startRecord()
         }
 
         floatView.setOnLongClickListener { playLatest(); true }
 
         engine = engineRef
-        engine?.apply { noiseLevel = noiseLevelRef; eqLevel = eqLevelRef; volume = volumeRef; noiseGateDb = noiseGateDbRef; outputDenoiseEnabled = outputDenoiseRef; vocalRangeFilterEnabled = vocalRangeFilterRef; indexRate = indexRateRef; protectRate = protectRateRef; loadIndex(indexPathRef) }
+        engine?.apply {
+            noiseLevel = noiseLevelRef
+            eqLevel = eqLevelRef
+            volume = volumeRef
+            noiseGateDb = noiseGateDbRef
+            outputDenoiseEnabled = outputDenoiseRef
+            vocalRangeFilterEnabled = vocalRangeFilterRef
+            indexRate = indexRateRef
+            protectRate = protectRateRef
+            loadIndex(indexPathRef)
+        }
         tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "等待模型…"
-        if (engine?.isLoaded() != true) Thread {
-            for (i in 0..10) { if (engine?.isLoaded() == true) break; engine = engineRef; engine?.apply { noiseLevel = noiseLevelRef; eqLevel = eqLevelRef; volume = volumeRef; noiseGateDb = noiseGateDbRef; outputDenoiseEnabled = outputDenoiseRef; vocalRangeFilterEnabled = vocalRangeFilterRef; indexRate = indexRateRef; protectRate = protectRateRef; loadIndex(indexPathRef) }; Thread.sleep(1000) }
-            floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
-        }.start()
+
+        if (engine?.isLoaded() != true) {
+            Thread {
+                for (i in 0..10) {
+                    if (engine?.isLoaded() == true) break
+                    engine = engineRef
+                    engine?.apply {
+                        noiseLevel = noiseLevelRef
+                        eqLevel = eqLevelRef
+                        volume = volumeRef
+                        noiseGateDb = noiseGateDbRef
+                        outputDenoiseEnabled = outputDenoiseRef
+                        vocalRangeFilterEnabled = vocalRangeFilterRef
+                        indexRate = indexRateRef
+                        protectRate = protectRateRef
+                        loadIndex(indexPathRef)
+                    }
+                    Thread.sleep(1000)
+                }
+                floatView.post { tvStatus?.text = if (engine?.isLoaded() == true) "点录制" else "未加载" }
+            }.start()
+        }
 
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         if (Build.VERSION.SDK_INT >= 23) {
@@ -202,62 +247,136 @@ class FloatMicService : Service() {
         }
     }
 
+    private fun buildNotification(): Notification {
+        val channelId = "rvc_float"
+
+        val stopIntent = Intent(this, FloatMicService::class.java).apply {
+            action = "STOP_SERVICE"
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 0, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            Notification.Builder(this)
+        }
+        builder.setContentTitle("MeowRVC")
+            .setContentText("悬浮窗变声运行中")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentIntent(stopPendingIntent) // 点击通知也可以关闭
+
+        // 添加“关闭”按钮（API 23+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val icon = android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel)
+            val action = Notification.Action.Builder(icon, "关闭", stopPendingIntent).build()
+            builder.addAction(action)
+        }
+        return builder.build()
+    }
+
+    private fun createNotifChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val channel = NotificationChannel(
+                "rvc_float",
+                "MeowRVC",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "STOP_SERVICE") {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
+
     private fun startRecord() {
         val sr = 48000
         val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         audioRecord = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 2)
-        // 开启声学回声消除（过滤扬声器回授 + 其他 App 声音）
         try { android.media.audiofx.AcousticEchoCanceler.create(audioRecord!!.audioSessionId)?.enabled = true } catch (_: Exception) {}
-        audioRecord!!.startRecording(); isRecording = true; isOurRecording = true; tvStatus?.text = "录音中…"
+        audioRecord!!.startRecording()
+        isRecording = true
+        isOurRecording = true
+        tvStatus?.text = "录音中…"
 
         recordThread = Thread({
-            val list = mutableListOf<ShortArray>(); val buf = ShortArray(bs)
-            var silenceFrames = 0; val vadThreshold = engine?.vadSilenceFrames ?: 300
+            val list = mutableListOf<ShortArray>()
+            val buf = ShortArray(bs)
+            var silenceFrames = 0
+            val vadThreshold = engine?.vadSilenceFrames ?: 300
             val vadEnergy = engine?.vadEnergyThreshold ?: 500f
             while (isRecording) {
-                val r = audioRecord!!.read(buf, 0, buf.size); if (r <= 0) continue
+                val r = audioRecord!!.read(buf, 0, buf.size)
+                if (r <= 0) continue
                 list.add(buf.copyOf(r))
-                // VAD：按 160 采样帧检测静音
                 var pos = 0
                 while (pos + 160 <= r) {
                     var energy = 0f
-                    for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
+                    for (i in 0 until 160) {
+                        val s = buf[pos + i].toInt()
+                        energy += (s * s).toFloat()
+                    }
                     energy = kotlin.math.sqrt(energy / 160f)
-                    if (energy < vadEnergy) { silenceFrames++; if (silenceFrames >= vadThreshold) { isRecording = false; tvStatus?.post { tvStatus?.text = "检测到停顿" }; break } }
-                    else silenceFrames = 0
+                    if (energy < vadEnergy) {
+                        silenceFrames++
+                        if (silenceFrames >= vadThreshold) {
+                            isRecording = false
+                            tvStatus?.post { tvStatus?.text = "检测到停顿" }
+                            break
+                        }
+                    } else silenceFrames = 0
                     pos += 160
                 }
             }
-            audioRecord!!.stop(); audioRecord!!.release(); audioRecord = null
-            val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
+            audioRecord!!.stop()
+            audioRecord!!.release()
+            audioRecord = null
+
+            val total = list.sumOf { it.size }
+            val fa = FloatArray(total)
+            var o = 0
             for (a in list) for (s in a) fa[o++] = s / 32768f
             tvStatus?.post { tvStatus?.text = "处理中…" }
             val inp = FloatArray(fa.size / 3) { fa[it * 3] }
             val res = engine?.infer(inp, f0UpKeyRef)
+
             if (res != null && res.isNotEmpty()) {
-                // 应用音量并归一化
                 val vol = volumeRef.coerceIn(0f, 1f)
                 var peak = 0f
-                for (i in res.indices) { res[i] *= vol; val a = kotlin.math.abs(res[i]); if (a > peak) peak = a }
-                if (peak > 0.95f) { val s = 0.95f / peak; for (i in res.indices) res[i] *= s }
+                for (i in res.indices) {
+                    res[i] *= vol
+                    val a = kotlin.math.abs(res[i])
+                    if (a > peak) peak = a
+                }
+                if (peak > 0.95f) {
+                    val s = 0.95f / peak
+                    for (i in res.indices) res[i] *= s
+                }
                 File("/sdcard/rvc").mkdirs()
-                io.github.neboyang.voicechanger.WavFile.write(File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"), res, 40000)
+                io.github.neboyang.voicechanger.WavFile.write(
+                    File("/sdcard/rvc", "voice_${System.currentTimeMillis()}.wav"),
+                    res, 40000
+                )
                 tvStatus?.post { tvStatus?.text = "已保存，外放中…" }
                 playLatest()
             } else tvStatus?.post { tvStatus?.text = "处理失败" }
         }, "float-record").also { it.start() }
     }
 
-    private fun createNotifChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(NotificationChannel("rvc_float", "MeowRVC", NotificationManager.IMPORTANCE_LOW))
-        }
-    }
-
     override fun onDestroy() {
-        isRecording = false; recordThread?.join(2000)
-        if (Build.VERSION.SDK_INT >= 23) audioManager?.unregisterAudioRecordingCallback(recordingCallback)
+        isRecording = false
+        recordThread?.join(2000)
+        if (Build.VERSION.SDK_INT >= 23) {
+            try { audioManager?.unregisterAudioRecordingCallback(recordingCallback) } catch (_: Exception) {}
+        }
         try { audioRecord?.stop(); audioRecord?.release() } catch (_: Exception) {}
         try { wm.removeView(floatView) } catch (_: Exception) {}
         super.onDestroy()
