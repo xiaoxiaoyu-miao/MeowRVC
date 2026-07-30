@@ -52,8 +52,17 @@ class RVCRealtime {
         val buf = ShortArray(bs)
         val rawLatency = latencyMs.coerceIn(500, 5000)
         val chunkSize = sr * rawLatency / 1000
-        val overlapSize = chunkSize / engine.overlapDivisor
+        val overlapSize = chunkSize / 8  // 12.5% 重叠，减少高频加倍
         val ringBuf = ArrayBlockingQueue<FloatArray>(6)
+
+        // 持久 AudioTrack（不重复创建销毁）
+        val playBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        audioManager?.isSpeakerphoneOn = true
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setBufferSizeInBytes(playBuf * 12).build()
+        track.play()
 
         // 录音线程
         val recThread = Thread({
@@ -73,7 +82,7 @@ class RVCRealtime {
             }
         }, "rvc-record").apply { start() }
 
-        // 处理+播放线程
+        // 处理线程（非阻塞写入）
         var prevTail = ShortArray(0)
         while (_isRunning.value) {
             val chunk = try { ringBuf.take() } catch (_: Exception) { break }
@@ -97,18 +106,26 @@ class RVCRealtime {
                         val s32 = ((s * vol) * 32768f).toInt()
                         outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                     }
-                    val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
+                    val fadeLen = minOf(prevTail.size, outShort.size, 512)
                     for (i in 0 until fadeLen) {
                         val a = prevTail[prevTail.size - fadeLen + i].toInt()
                         val b = outShort[i].toInt()
                         val f = (i.toFloat() / fadeLen)
                         outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
                     }
-                    prevTail = outShort.copyOfRange((outShort.size - engine.crossfadeSamples).coerceAtLeast(0), outShort.size)
-                    playAudio(outShort, sr)
+                    prevTail = outShort.copyOfRange((outShort.size - 1024).coerceAtLeast(0), outShort.size)
+                    // 非阻塞写入，不会卡住处理线程
+                    var written = 0
+                    while (written < outShort.size) {
+                        val w = track.write(outShort, written, outShort.size - written, AudioTrack.WRITE_NON_BLOCKING)
+                        if (w > 0) written += w
+                        else Thread.sleep(5)
+                    }
                 }
             } catch (e: Exception) { onError?.invoke(e) }
         }
+        track.stop(); track.release()
+        audioManager?.isSpeakerphoneOn = false
         try { rec.stop(); rec.release() } catch (_: Exception) {}
         recThread.join(2000)
     }
