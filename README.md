@@ -5,28 +5,52 @@ AI real-time voice conversion app for Android. Runs RVC (Retrieval-based Voice C
 ## Features
 
 - **Real-time voice conversion** - Select a model, speak into the mic, hear the converted voice instantly
-- **Floating mic overlay** - Record audio from any app, process through AI, auto-playback through speaker for other apps to capture
-- **Auto-detect microphone usage** - When WeChat/QQ starts recording, automatically plays the latest processed audio through the speaker at max volume (acoustic coupling)
+- **Record & save to file** - Record, convert, save the result to `/sdcard/rvc/` without playing out loud
+- **QQ bot (Lagrange.OneBot)** - Start a WebSocket server on port 2536, receive voice in QQ groups, auto-convert and reply; or send any converted file to a group / QQ account with one tap
 - **Adjustable latency** - 0.5~5 seconds, lower for real-time, higher for better quality
 - **Pitch shift** - +/- 15 semitones
 - **ONNX Runtime acceleration** - Supports NNAPI/NPU/GPU
 
+## 一键部署 QQ 机器人 (Termux)
+
+基于 Lagrange.OneBot（dotnet），无需安装 NapCat。
+
+**第一步** - 安装依赖（wget、.NET SDK 10.0、sfextract）：
+
+```bash
+curl -o install.sh https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat/install.sh && bash install.sh
+```
+
+完成后**请先关闭并重新打开 Termux**，再执行第二步：
+
+**第二步** - 部署 Lagrange：
+
+```bash
+curl -o deploy.sh https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat/deploy.sh && bash deploy.sh
+```
+
+`deploy.sh` 会自动克隆仓库、解包 Lagrange、下载 `libSilkCodec.so` 与 Realm 原生库并生成启动脚本。部署完成后在 Termux 输入 `rvc` 即可启动机器人。首次登录按提示扫码（或输密码）后，机器人会以 ReverseWebSocket 连接 App 的 2536 端口。
+
+### 前置条件
+
+- 已安装并打开 MeowRVC App（会启动 2536 WS 服务器）
+- Termux 已执行 `termux-setup-storage`（App 与 Termux 共享 `/sdcard/rvc` 变声文件）
+
 ## How It Works
 
 ```
-1. Select model -> Start floating mic overlay
-2. Tap overlay to record -> Stop -> RVC processes -> saves to /sdcard/rvc/
-3. Open WeChat/QQ -> Send voice message
-4. App detects mic is busy -> Auto-plays latest processed audio through speaker at max volume
-5. WeChat's mic picks up the speaker output -> Friend hears the converted voice
+1. Select model -> Start recording
+2. Record -> Stop -> RVC converts -> saves to /sdcard/rvc/
+3. In-app send button -> pick the file -> Lagrange sends it as voice to the target QQ group / account
+4. (Optional) QQ group voice messages are auto-converted and replied back by the bot
 ```
 
 ## Requirements
 
 - Android 8.0+ (API 26+)
-- Root (Magisk) for `setCommunicationDevice` / speaker routing
 - ~4GB free RAM for model inference
 - RVC model files (`.onnx`) in `/sdcard/models/`
+- Termux with .NET SDK 10.0 for the QQ bot (see one-click deploy above)
 
 ## Build
 
