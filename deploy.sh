@@ -9,9 +9,14 @@ echo "==> 1. 创建工作目录..."
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR" || exit 1
 
-echo "==> 2. 下载 Lagrange 可执行文件..."
-wget -O "$WORK_DIR/Lagrange" "$RAW_BASE/Lagrange"
+echo "==> 2. 下载并解压 Lagrange.OneBot 官方发布包..."
+RELEASE_URL="https://github.com/LagrangeDev/Lagrange.Core/releases/download/nightly/Lagrange.OneBot_linux-arm64_net9.0_SelfContained.tar.gz"
+TARBALL="Lagrange.OneBot_linux-arm64_net9.0_SelfContained.tar.gz"
+wget -O "$TARBALL" "$RELEASE_URL"
+tar -xzf "$TARBALL" -C "$WORK_DIR"
+mv "$WORK_DIR/Lagrange.OneBot/bin/Release/net9.0/linux-arm64/publish/Lagrange.OneBot" "$WORK_DIR/Lagrange"
 chmod +x "$WORK_DIR/Lagrange"
+rm "$TARBALL"
 
 echo "==> 3. 使用 sfextract 解包 Lagrange（启用 roll forward）..."
 export DOTNET_ROLL_FORWARD=Major
