@@ -8,6 +8,27 @@ QQ 语音变声插件：群里发语音 → 自动调用本机 RVC 引擎变声 
 2. **`#变声` 命令**：发送 `/sdcard/rvc` 目录下最新的本地变声文件
 3. WebUI 可视化配置（NapCat 后台插件页）
 
+## 一键部署 (Termux)
+
+> 基于 Lagrange.OneBot（dotnet），无需安装 NapCat。
+
+```bash
+curl -o install.sh https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat/install.sh && bash install.sh
+```
+
+> 脚本会安装 wget、.NET SDK 10.0 和 sfextract，执行完成后**请先关闭并重新打开 Termux**，再运行第二步：
+
+```bash
+curl -o deploy.sh https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat/deploy.sh && bash deploy.sh
+```
+
+> `deploy.sh` 会自动克隆仓库、解包 Lagrange、下载 `libSilkCodec.so` 与 Realm 原生库并生成启动脚本。部署完成后在 Termux 输入 `rvc` 即可启动机器人。首次登录按提示扫码（或输密码）后，机器人会以 ReverseWebSocket 连接 App 的 2536 端口。
+
+### 前置条件
+
+- 已安装并打开 MeowRVC App（会启动 2536 WS 服务器）
+- Termux 已执行 `termux-setup-storage`（App 与 Termux 共享 `/sdcard/rvc` 变声文件）
+
 ## 架构
 
 ```
