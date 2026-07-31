@@ -3,8 +3,18 @@
 # --- 配置区域 ---
 WORK_DIR="$HOME/rvcqq"
 EXTRACT_DIR="$WORK_DIR/extracted_files"
-CONFIG_DIR="$WORK_DIR/111111111111"  # 改为占位目录
 RAW_BASE="https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat"
+
+# --- 询问 QQ 号 ---
+while true; do
+    read -p "请输入你的 QQ 号: " QQ
+    if [[ "$QQ" =~ ^[0-9]{5,12}$ ]]; then
+        break
+    else
+        echo "❌ QQ 号格式不正确，请输入 5~12 位数字"
+    fi
+done
+CONFIG_DIR="$WORK_DIR/$QQ"
 
 echo "==> 1. 创建工作目录..."
 mkdir -p "$WORK_DIR"
@@ -62,34 +72,65 @@ cat > "$EXTRACT_DIR/Lagrange.OneBot.runtimeconfig.json" << 'EOF'
 }
 EOF
 
-echo "==> 7. 创建配置目录（请替换为你的 QQ 号）..."
+echo "==> 7. 创建配置目录并生成 appsettings.json..."
 mkdir -p "$CONFIG_DIR"
-echo "📌 请将你的配置文件放入: $CONFIG_DIR"
-echo "📌 需要以下文件: appsettings.json, device.json, keystore.json"
-echo "📌 数据库目录也请放到这里: lagrange-<你的QQ号>-db"
+cat > "$CONFIG_DIR/appsettings.json" << EOF
+{
+  "\$schema": "https://raw.githubusercontent.com/LagrangeDev/Lagrange.Core/master/Lagrange.OneBot/Resources/appsettings_schema.json",
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+  "SignServerUrl": "https://39038.928100.xyz",
+  "SignProxyUrl": "",
+  "MusicSignServerUrl": "",
+  "Account": {
+    "Uin": $QQ,
+    "Password": "",
+    "Protocol": "Linux",
+    "AutoReconnect": true,
+    "GetOptimumServer": true
+  },
+  "Message": {
+    "IgnoreSelf": true,
+    "StringPost": false
+  },
+  "QrCode": {
+    "ConsoleCompatibilityMode": false
+  },
+  "Implementations": [
+    {
+      "Type": "ReverseWebSocket",
+      "Host": "localhost",
+      "Port": 2536,
+      "Suffix": "/OneBotv11",
+      "ReconnectInterval": 5000,
+      "HeartBeatInterval": 5000,
+      "AccessToken": ""
+    }
+  ]
+}
+EOF
+echo "✅ 已生成: $CONFIG_DIR/appsettings.json (Uin=$QQ, ReverseWebSocket:2536)"
 
 echo "==> 8. 创建全局命令 'rvc'..."
-cat > "/data/data/com.termux/files/usr/bin/rvc" << 'EOF'
+cat > "/data/data/com.termux/files/usr/bin/rvc" << EOF
 #!/data/data/com.termux/files/usr/bin/bash
-# 请将 111111111111 替换为你的 QQ 号
-cd "$HOME/rvcqq/111111111111" && dotnet ../extracted_files/Lagrange.OneBot.dll
+cd "$HOME/rvcqq/$QQ" && dotnet ../extracted_files/Lagrange.OneBot.dll
 EOF
 chmod +x "/data/data/com.termux/files/usr/bin/rvc"
 
 echo "============================================"
 echo "✅ 部署完成！"
 echo ""
-echo "📌 重要：请按以下步骤操作"
-echo "1. 将你的配置文件放入: $HOME/rvcqq/111111111111/"
-echo "   - appsettings.json"
-echo "   - device.json"
-echo "   - keystore.json"
-echo "   - lagrange-<你的QQ号>-db (数据库目录)"
+echo "📌 配置目录: $CONFIG_DIR"
+echo "   - appsettings.json (已自动生成)"
+echo "   - device.json / keystore.json (首次启动自动生成)"
+echo "   - lagrange-$QQ-db (数据库目录，首次启动自动生成)"
 echo ""
-echo "2. 编辑全局命令，替换为你的 QQ 号:"
-echo "   nano /data/data/com.termux/files/usr/bin/rvc"
-echo "   将 111111111111 替换为你的实际 QQ 号"
-echo ""
-echo "3. 启动机器人:"
-echo "   rvc"
+echo "🚀 启动机器人: rvc"
+echo "   首次运行按提示扫码登录即可"
 echo "============================================"
