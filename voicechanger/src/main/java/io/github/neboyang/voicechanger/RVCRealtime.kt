@@ -19,7 +19,7 @@ class RVCRealtime {
 
     val engine = RVCOnnxEngine()
     var f0UpKey: Int = 0
-    var latencyMs: Int = 0
+    var latencyMs: Int = 2000
     var onError: ((Throwable) -> Unit)? = null
     var audioManager: AudioManager? = null
     var realtimeMode: Boolean = false
@@ -61,7 +61,7 @@ class RVCRealtime {
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(playBuf * 48)  // 从 4 倍改为 8 倍
+            .setBufferSizeInBytes(playBuf * 96)  // 从 4 倍改为 8 倍
             .build()
         track.play()
 

@@ -437,14 +437,6 @@
                 android:stepSize="0.01" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnFloat"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="启动悬浮麦克风" />
-
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnCloud"
                 style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="match_parent"
@@ -459,6 +451,72 @@
                 android:layout_height="wrap_content"
                 android:enabled="false"
                 android:text="转换本地音频" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="QQ 机器人 (NapCat)"
+                android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+            <TextView
+                android:id="@+id/tvBotStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="NapCat HTTP 地址 (如 http://127.0.0.1:3000)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etBotUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"
+                    android:singleLine="true" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Token (留空表示无)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etBotToken"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textPassword"
+                    android:singleLine="true" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="群号 (群聊)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etBotGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:singleLine="true" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBotSend"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:enabled="false"
+                android:text="发送最新变声文件到QQ群" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRvcRealtime"

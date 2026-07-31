@@ -21,7 +21,6 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.slider.Slider
-import io.github.neboyang.voicechanger.FloatMicService
 import io.github.neboyang.voicechanger.RVCModelManager
 import io.github.neboyang.voicechanger.RVCRealtime
 import kotlinx.coroutines.Dispatchers
@@ -64,9 +63,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sliderOverlap: Slider
     private lateinit var tvOverlap: TextView
     private lateinit var btnRvcRealtime: MaterialButton
-    private lateinit var btnFloat: MaterialButton
     private lateinit var btnCloud: MaterialButton
     private lateinit var btnLocalConvert: MaterialButton
+    private lateinit var etBotUrl: android.widget.EditText
+    private lateinit var etBotToken: android.widget.EditText
+    private lateinit var etBotGroup: android.widget.EditText
+    private lateinit var tvBotStatus: TextView
+    private lateinit var btnBotSend: MaterialButton
+    private var lastConvertedFile: File? = null
     private var currentModelDir: File? = null
     private var currentIndexPath: String? = null
 
@@ -104,6 +108,8 @@ class MainActivity : AppCompatActivity() {
                         val outFile = File("/sdcard/rvc", "converted_${System.currentTimeMillis()}.wav")
                         outFile.parentFile?.mkdirs()
                         io.github.neboyang.voicechanger.WavFile.write(outFile, result, rvcRealtime.engine.targetSr)
+                        lastConvertedFile = outFile
+                        btnBotSend.isEnabled = true
                         withContext(Dispatchers.Main) { tvStatus.text = "已保存: ${outFile.name}"; Toast.makeText(this@MainActivity, "转换完成", Toast.LENGTH_LONG).show() }
                     }
                 } catch (e: Exception) { withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "失败: ${e.message}", Toast.LENGTH_SHORT).show() } }
@@ -152,7 +158,6 @@ class MainActivity : AppCompatActivity() {
     private val indexPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@registerForActivityResult
-            val path = uri.path ?: return@registerForActivityResult
             // Copy to app cache to get a file path
             try {
                 val input = contentResolver.openInputStream(uri) ?: return@registerForActivityResult
@@ -160,7 +165,6 @@ class MainActivity : AppCompatActivity() {
                 input.use { inp -> cacheFile.outputStream().use { inp.copyTo(it) } }
                 currentIndexPath = cacheFile.absolutePath
                 rvcRealtime.engine.loadIndex(cacheFile.absolutePath)
-                FloatMicService.indexPathRef = cacheFile.absolutePath
                 tvIndexPath.text = "索引: ${cacheFile.name}"
             } catch (e: Exception) {
                 Toast.makeText(this, "索引加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -258,9 +262,35 @@ class MainActivity : AppCompatActivity() {
 
 
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
-        btnFloat = findViewById(R.id.btnFloat)
         btnCloud = findViewById(R.id.btnCloud)
         btnLocalConvert = findViewById(R.id.btnLocalConvert)
+        etBotUrl = findViewById(R.id.etBotUrl)
+        etBotToken = findViewById(R.id.etBotToken)
+        etBotGroup = findViewById(R.id.etBotGroup)
+        tvBotStatus = findViewById(R.id.tvBotStatus)
+        btnBotSend = findViewById(R.id.btnBotSend)
+
+        etBotUrl.setText(settings.getString("botUrl", "http://127.0.0.1:3000"))
+        etBotToken.setText(settings.getString("botToken", ""))
+        etBotGroup.setText(settings.getString("botGroup", ""))
+
+        btnBotSend.setOnClickListener {
+            val file = lastConvertedFile ?: findLatestConverted()
+            if (file == null) { Toast.makeText(this, "没有已转换的音频", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            val groupId = etBotGroup.text.toString().trim().toLongOrNull()
+            if (groupId == null) { Toast.makeText(this, "请输入群号", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            val url = etBotUrl.text.toString().trim().ifEmpty { "http://127.0.0.1:3000" }
+            val token = etBotToken.text.toString().trim()
+            settings.save("botUrl", url); settings.save("botToken", token); settings.save("botGroup", groupId.toString())
+            tvBotStatus.text = "发送中: ${file.name}"
+            lifecycleScope.launch(Dispatchers.IO) {
+                val ok = OneBotClient(url, token).sendGroupRecord(groupId, OneBotClient.toSdcardPath(file))
+                withContext(Dispatchers.Main) {
+                    tvBotStatus.text = if (ok) "已发送到群 $groupId" else "发送失败，请检查 NapCat 地址/Token"
+                    Toast.makeText(this@MainActivity, if (ok) "语音已发送" else "发送失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
         fun reloadWithBackend(mode: Int) {
@@ -294,7 +324,6 @@ class MainActivity : AppCompatActivity() {
         sliderF0Key.addOnChangeListener { _, value, _ ->
             tvF0Key.text = getString(R.string.rvc_f0_key, value.toInt())
             rvcRealtime.f0UpKey = value.toInt(); settings.save("f0UpKey", value.toInt())
-            FloatMicService.f0UpKeyRef = value.toInt()
         }
 
         sliderLatency.addOnChangeListener { _, value, _ ->
@@ -306,36 +335,30 @@ class MainActivity : AppCompatActivity() {
             val level = value.toInt()
             tvNoise.text = getString(R.string.rvc_noise, level)
             rvcRealtime.engine.noiseLevel = level; settings.save("noiseLevel", level)
-            io.github.neboyang.voicechanger.FloatMicService.noiseLevelRef = level
         }
 
         sliderEq.addOnChangeListener { _, value, _ ->
             val level = value.toInt()
             tvEq.text = getString(R.string.rvc_eq, level)
             rvcRealtime.engine.eqLevel = level; settings.save("eqLevel", level)
-            io.github.neboyang.voicechanger.FloatMicService.eqLevelRef = level
         }
 
         sliderProtect.addOnChangeListener { _, value, _ ->
             tvProtect.text = getString(R.string.rvc_protect, "%.2f".format(value))
             rvcRealtime.engine.protectRate = value.toDouble(); settings.save("protectRate", value)
-            FloatMicService.protectRateRef = value.toDouble()
         }
 
         sliderNoiseGate.addOnChangeListener { _, value, _ ->
             tvNoiseGate.text = "降噪门控: ${value.toInt()}dB"
             rvcRealtime.engine.noiseGateDb = value.toDouble(); settings.save("noiseGateDb", value)
-            FloatMicService.noiseGateDbRef = value.toDouble()
         }
 
         switchDenoise.setOnCheckedChangeListener { _, checked ->
             rvcRealtime.engine.outputDenoiseEnabled = checked; settings.save("outputDenoise", checked)
-            FloatMicService.outputDenoiseRef = checked
         }
 
         switchVocalRange.setOnCheckedChangeListener { _, checked ->
             rvcRealtime.engine.vocalRangeFilterEnabled = checked; settings.save("vocalRangeFilter", checked)
-            FloatMicService.vocalRangeFilterRef = checked
         }
         pitchSelector.setOnCheckedStateChangeListener { group, _ ->
             val mode = when (group.checkedChipId) {
@@ -365,7 +388,6 @@ class MainActivity : AppCompatActivity() {
         sliderIndexRate.addOnChangeListener { _, value, _ ->
             tvIndexRate.text = "索引融合: %.2f".format(value)
             rvcRealtime.engine.indexRate = value.toDouble(); settings.save("indexRate", value)
-            FloatMicService.indexRateRef = value.toDouble()
         }
         tvIndexRate.text = "索引融合: 0.00"
 
@@ -396,25 +418,6 @@ class MainActivity : AppCompatActivity() {
                 btnRvcRealtime.text = if (running) "${mode}中…停止" else "开始${mode}变声"
                 tvStatus.text = if (running) "${mode}变声运行中" else "就绪"
             }
-        }
-
-        // 悬浮窗按钮
-        btnFloat.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                Toast.makeText(this, "请允许悬浮窗权限", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                Toast.makeText(this, "请允许通知权限", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            FloatMicService.engineRef = rvcRealtime.engine
-            FloatMicService.f0UpKeyRef = rvcRealtime.f0UpKey
-            FloatMicService.volumeRef = rvcRealtime.engine.volume
-            FloatMicService.start(this)
-            Toast.makeText(this, "悬浮窗已启动", Toast.LENGTH_SHORT).show()
         }
 
         // 云端变声按钮
@@ -467,6 +470,11 @@ class MainActivity : AppCompatActivity() {
                 else tvModelStatus.setText(R.string.rvc_model_failed)
             }
         }
+    }
+
+    private fun findLatestConverted(): File? {
+        val dir = File("/sdcard/rvc")
+        return dir.listFiles { f -> f.name.endsWith(".wav") }?.maxByOrNull { it.lastModified() }
     }
 
     private fun checkStoragePermission(): Boolean =
