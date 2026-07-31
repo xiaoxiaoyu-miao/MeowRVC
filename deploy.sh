@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # --- 配置区域 ---
-WORK_DIR="$HOME/rvcqq"
+WORK_DIR="$HOME/rvcqq" 
 EXTRACT_DIR="$WORK_DIR/extracted_files"
 RAW_BASE="https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat"
 
