@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sliderOverlap: Slider
     private lateinit var tvOverlap: TextView
     private lateinit var btnRvcRealtime: MaterialButton
+    private lateinit var btnRecordToFile: MaterialButton
     private lateinit var btnCloud: MaterialButton
     private lateinit var btnLocalConvert: MaterialButton
     private lateinit var etBotUrl: android.widget.EditText
@@ -303,6 +304,7 @@ class MainActivity : AppCompatActivity() {
 
         btnRvcRealtime = findViewById(R.id.btnRvcRealtime)
         btnCloud = findViewById(R.id.btnCloud)
+        btnRecordToFile = findViewById(R.id.btnRecordToFile)
         btnLocalConvert = findViewById(R.id.btnLocalConvert)
         etBotUrl = findViewById(R.id.etBotUrl)
         etBotToken = findViewById(R.id.etBotToken)
@@ -442,6 +444,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // 录音 → 变声 → 保存文件（不外放）
+        btnRecordToFile.setOnClickListener {
+            if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            if (rvcRealtime.isRunning.value) {
+                rvcRealtime.stop()
+                Toast.makeText(this, "已停止，文件保存中…", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val dir = File("/sdcard/rvc"); dir.mkdirs()
+            val outFile = File(dir, "record_${System.currentTimeMillis()}.wav")
+            rvcRealtime.onError = { t -> runOnUiThread { Toast.makeText(this, "错误: ${t.message}", Toast.LENGTH_LONG).show() } }
+            rvcRealtime.onRecordSaved = { f ->
+                lastConvertedFile = f
+                runOnUiThread {
+                    tvStatus.text = "已保存: ${f.name}"
+                    Toast.makeText(this, "变声文件已保存: ${f.name}", Toast.LENGTH_LONG).show()
+                }
+            }
+            withRecordPermission { rvcRealtime.startRecordToFile(outFile) }
+        }
+
         val modeSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.modeSwitch)
         modeSwitch.setOnCheckedStateChangeListener { group, _ ->
             rvcRealtime.realtimeMode = group.checkedChipId == R.id.modeRealtime
@@ -453,6 +476,7 @@ class MainActivity : AppCompatActivity() {
             rvcRealtime.isRunning.collect { running ->
                 val mode = if (rvcRealtime.realtimeMode) "实时" else "录音"
                 btnRvcRealtime.text = if (running) "${mode}中…停止" else "开始${mode}变声"
+                btnRecordToFile.text = if (running) "录音中…点击停止保存" else "录音变声并保存文件（不外放）"
                 tvStatus.text = if (running) "${mode}变声运行中" else "就绪"
             }
         }
@@ -503,7 +527,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val ok = rvcRealtime.loadModel(dir)
             withContext(Dispatchers.Main) {
-                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; btnLocalConvert.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
+                if (ok) { currentModelDir = dir; tvModelStatus.text = getString(R.string.rvc_model_loaded, info.name); btnRvcRealtime.isEnabled = true; btnRecordToFile.isEnabled = true; btnLocalConvert.isEnabled = true; tvBackend.text = "后端: ${rvcRealtime.engine.backendInfo}" }
                 else tvModelStatus.setText(R.string.rvc_model_failed)
             }
         }

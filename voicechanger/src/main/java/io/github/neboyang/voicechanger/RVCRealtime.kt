@@ -21,6 +21,7 @@ class RVCRealtime {
     var f0UpKey: Int = 0
     var latencyMs: Int = 2000
     var onError: ((Throwable) -> Unit)? = null
+    var onRecordSaved: ((File) -> Unit)? = null
     var audioManager: AudioManager? = null
     var realtimeMode: Boolean = false
 
@@ -224,6 +225,89 @@ class RVCRealtime {
             if (_isRunning.value) rec = startRec()
         }
         try { rec.stop(); rec.release() } catch (_: Exception) {}
+    }
+
+    /**
+     * 录音 → 变声 → 保存到文件（不外放）。
+     * 录音期间将每段 VAD 语音变声后的结果累积，stop() 时写入 [outFile]。
+     */
+    @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+    fun startRecordToFile(outFile: File) {
+        if (!engine.isLoaded()) { onError?.invoke(java.lang.IllegalStateException("Model not loaded")); return }
+        if (_isRunning.value) return
+        _isRunning.value = true
+        loopThread = Thread({ recordToFileLoop(outFile) }, "rvc-record-file")
+        loopThread!!.start()
+    }
+
+    private fun recordToFileLoop(outFile: File) {
+        val sr = 48000
+        val bs = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val buf = ShortArray(bs)
+        fun startRec() = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4).apply { startRecording() }
+        var rec = startRec()
+        var prevTail = ShortArray(0)
+        val converted = java.io.ByteArrayOutputStream()
+
+        while (_isRunning.value) {
+            val list = mutableListOf<ShortArray>()
+            var silenceFrames = 0
+            val vadTh = engine.vadSilenceFrames
+            val vadEn = engine.vadEnergyThreshold
+            while (_isRunning.value) {
+                val r = rec.read(buf, 0, buf.size); if (r <= 0) continue
+                list.add(buf.copyOf(r))
+                var pos = 0
+                while (pos + 160 <= r) {
+                    var energy = 0f
+                    for (i in 0 until 160) { val s = buf[pos + i].toInt(); energy += (s * s).toFloat() }
+                    energy = kotlin.math.sqrt(energy / 160f)
+                    if (energy < vadEn) { silenceFrames++; if (silenceFrames >= vadTh) { pos = -1; break } }
+                    else silenceFrames = 0; pos += 160
+                }
+                if (pos == -1) break
+            }
+            if (!_isRunning.value) break
+            try { rec.stop(); rec.release() } catch (_: Exception) {}
+            try {
+                val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
+                for (a in list) for (s in a) fa[o++] = s / 32768f
+                val inp = FloatArray(fa.size / 3) { (fa[it * 3] + fa[it * 3 + 1] + fa[it * 3 + 2]) / 3f }
+                val res = engine.infer(inp, f0UpKey)
+                if (res != null && res.isNotEmpty()) {
+                    val outLen = (res.size * 48 / 40).coerceAtMost(total)
+                    val outShort = ShortArray(outLen); val vol = engine.volume
+                    for (i in 0 until outLen) {
+                        val pos = (i.toDouble() * res.size) / outLen
+                        val si = pos.toInt().coerceIn(0, res.size - 2)
+                        val frac = (pos - si).toFloat()
+                        val s = res[si] * (1f - frac) + res[si + 1] * frac
+                        outShort[i] = ((s * vol) * 32768f).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
+                    for (i in 0 until fadeLen) {
+                        val a = prevTail[prevTail.size - fadeLen + i].toInt()
+                        val b = outShort[i].toInt()
+                        val f = (i.toFloat() / fadeLen)
+                        outShort[i] = ((a * (1f - f) + b * f).toInt().coerceIn(-32768, 32767)).toShort()
+                    }
+                    prevTail = outShort.copyOfRange((outShort.size - engine.crossfadeSamples).coerceAtLeast(0), outShort.size)
+                    for (s in outShort) { converted.write(s.toInt() and 0xFF); converted.write((s.toInt() shr 8) and 0xFF) }
+                }
+            } catch (e: Exception) { onError?.invoke(e) }
+            if (_isRunning.value) rec = startRec()
+        }
+        try { rec.stop(); rec.release() } catch (_: Exception) {}
+
+        if (converted.size() > 0) {
+            val bytes = converted.toByteArray()
+            val samples = ShortArray(bytes.size / 2)
+            for (i in samples.indices) samples[i] = ((bytes[i * 2].toInt() and 0xFF) or ((bytes[i * 2 + 1].toInt() and 0xFF) shl 8)).toShort()
+            val floats = FloatArray(samples.size) { samples[it] / 32768f }
+            outFile.parentFile?.mkdirs()
+            WavFile.write(outFile, floats, sr)
+            onRecordSaved?.invoke(outFile)
+        }
     }
 
     private fun playAudio(data: ShortArray, sr: Int) {

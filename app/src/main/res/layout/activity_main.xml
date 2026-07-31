@@ -548,6 +548,14 @@
                 android:enabled="false"
                 android:text="快速变声（录音→自动→外放）" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRecordToFile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:enabled="false"
+                android:text="录音变声并保存文件（不外放）" />
+
             <TextView
                 android:id="@+id/tvRvcResult"
                 android:layout_width="match_parent"
