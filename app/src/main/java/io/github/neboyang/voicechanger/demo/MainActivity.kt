@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBotStatus: TextView
     private lateinit var btnBotSend: MaterialButton
     private var lastConvertedFile: File? = null
+    private var botServer: OneBotWsServer? = null
     private var currentModelDir: File? = null
     private var currentIndexPath: String? = null
 
@@ -80,6 +81,45 @@ class MainActivity : AppCompatActivity() {
         }
 
     private var cloudRvc: ReplicateCloudRvc? = null
+
+    private val sendAudioPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch(Dispatchers.IO) {
+                val targetId = etBotGroup.text.toString().trim().toLongOrNull()
+                val isPrivate = findViewById<com.google.android.material.chip.Chip>(R.id.chipBotPrivate).isChecked
+                if (targetId == null) {
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "请先输入群号或QQ号", Toast.LENGTH_SHORT).show() }
+                    return@launch
+                }
+                val conn = botServer?.getActiveConnections()?.firstOrNull()
+                if (conn == null) {
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "Lagrange 未连接，请先启动 Lagrange", Toast.LENGTH_LONG).show() }
+                    return@launch
+                }
+                try {
+                    val input = contentResolver.openInputStream(uri) ?: run {
+                        withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "无法读取所选文件", Toast.LENGTH_SHORT).show() }
+                        return@launch
+                    }
+                    // 复制到 /sdcard/rvc，保证 Lagrange 能读到
+                    val outDir = File("/sdcard/rvc"); outDir.mkdirs()
+                    val outFile = File(outDir, "send_${System.currentTimeMillis()}.${fileExtOf(uri) ?: "wav"}")
+                    input.use { it.copyTo(outFile.outputStream()) }
+                    withContext(Dispatchers.Main) { tvBotStatus.text = "发送中: ${outFile.name}" }
+                    botServer!!.sendGroupRecord(conn, if (isPrivate) -targetId else targetId, outFile.absolutePath)
+                    withContext(Dispatchers.Main) {
+                        tvBotStatus.text = "已发送到${if (isPrivate) "QQ号" else "群"} $targetId"
+                        Toast.makeText(this@MainActivity, "语音已发送", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) { tvBotStatus.text = "发送失败: ${e.message}" }
+                }
+            }
+        }
+
+    private fun fileExtOf(uri: Uri): String? =
+        contentResolver.getType(uri)?.substringAfterLast("/")?.let { mapOf("wav" to "wav", "x-wav" to "wav", "mpeg" to "mp3", "x-ms-wma" to "wma").getOrElse(it) { "wav" } }
 
     private val localAudioPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -270,26 +310,23 @@ class MainActivity : AppCompatActivity() {
         tvBotStatus = findViewById(R.id.tvBotStatus)
         btnBotSend = findViewById(R.id.btnBotSend)
 
-        etBotUrl.setText(settings.getString("botUrl", "http://127.0.0.1:3000"))
+        etBotUrl.setText(settings.getString("botUrl", "127.0.0.1"))
         etBotToken.setText(settings.getString("botToken", ""))
         etBotGroup.setText(settings.getString("botGroup", ""))
 
+        // 启动 OneBot WS 服务器（Lagrange ReverseWebSocket 默认连 2536）
+        startBotServer()
+
+        val botTargetGroup = findViewById<com.google.android.material.chip.ChipGroup>(R.id.botTargetGroup)
+        val chipBotGroup = findViewById<com.google.android.material.chip.Chip>(R.id.chipBotGroup)
+        val chipBotPrivate = findViewById<com.google.android.material.chip.Chip>(R.id.chipBotPrivate)
+        if (settings.getBoolean("botTargetPrivate", false)) chipBotPrivate.isChecked = true
+        botTargetGroup.setOnCheckedStateChangeListener { _, _ ->
+            settings.save("botTargetPrivate", chipBotPrivate.isChecked)
+        }
+
         btnBotSend.setOnClickListener {
-            val file = lastConvertedFile ?: findLatestConverted()
-            if (file == null) { Toast.makeText(this, "没有已转换的音频", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            val groupId = etBotGroup.text.toString().trim().toLongOrNull()
-            if (groupId == null) { Toast.makeText(this, "请输入群号", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            val url = etBotUrl.text.toString().trim().ifEmpty { "http://127.0.0.1:3000" }
-            val token = etBotToken.text.toString().trim()
-            settings.save("botUrl", url); settings.save("botToken", token); settings.save("botGroup", groupId.toString())
-            tvBotStatus.text = "发送中: ${file.name}"
-            lifecycleScope.launch(Dispatchers.IO) {
-                val ok = OneBotClient(url, token).sendGroupRecord(groupId, OneBotClient.toSdcardPath(file))
-                withContext(Dispatchers.Main) {
-                    tvBotStatus.text = if (ok) "已发送到群 $groupId" else "发送失败，请检查 NapCat 地址/Token"
-                    Toast.makeText(this@MainActivity, if (ok) "语音已发送" else "发送失败", Toast.LENGTH_SHORT).show()
-                }
-            }
+            sendAudioPicker.launch(arrayOf("audio/*"))
         }
 
         val backendSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.backendSwitch)
@@ -472,6 +509,103 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startBotServer() {
+        if (botServer != null) return
+        val token = etBotToken.text.toString().trim()
+        botServer = OneBotWsServer(
+            port = 2536,
+            token = token,
+            onStatus = { status -> runOnUiThread { tvBotStatus.text = status } },
+            onVoiceMessage = { data, target ->
+                handleBotVoice(data, target)
+            }
+        )
+        botServer?.setReuseAddr(true)
+        botServer?.start()
+        tvBotStatus.text = "WS 服务器启动中 (2536)…"
+    }
+
+    /** 收到群里语音 → 变声 → 发回 */
+    private fun handleBotVoice(data: org.json.JSONObject, target: Long) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val file = data.optString("file", "")
+                val url = data.optString("url", "")
+                runOnUiThread { tvBotStatus.text = "收到语音，变声中…" }
+
+                // 优先用 file（本地路径），否则下载 url
+                var audioFile: File? = null
+                if (file.startsWith("http")) {
+                    audioFile = downloadToCache(url.ifBlank { file })
+                } else if (file.isNotBlank()) {
+                    val f = File(file)
+                    if (f.exists()) audioFile = f
+                }
+                if (audioFile == null) {
+                    runOnUiThread { tvBotStatus.text = "无法获取语音文件" }
+                    return@launch
+                }
+
+                // 读取音频 → 16k → RVC
+                val wav = decodeToFloat(audioFile)
+                if (wav == null || wav.first.size < 320) {
+                    runOnUiThread { tvBotStatus.text = "语音解析失败" }
+                    return@launch
+                }
+                val result = rvcRealtime.engine.infer(wav.first, rvcRealtime.f0UpKey)
+                if (result == null || result.isEmpty()) {
+                    runOnUiThread { tvBotStatus.text = "变声失败：模型未加载？" }
+                    return@launch
+                }
+
+                val outFile = File("/sdcard/rvc", "qq_${System.currentTimeMillis()}.wav")
+                outFile.parentFile?.mkdirs()
+                io.github.neboyang.voicechanger.WavFile.write(outFile, result, rvcRealtime.engine.targetSr)
+                lastConvertedFile = outFile
+
+                val conn = botServer?.getActiveConnections()?.firstOrNull()
+                if (conn != null) {
+                    botServer!!.sendGroupRecord(conn, target, outFile.absolutePath, "✨ 变声完成")
+                    runOnUiThread { tvBotStatus.text = "已发回变声语音" }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { tvBotStatus.text = "变声处理异常: ${e.message}" }
+                android.util.Log.e("RVC", "Bot voice fail", e)
+            }
+        }
+    }
+
+    /** 下载 url 到缓存 */
+    private fun downloadToCache(url: String): File? {
+        return try {
+            val req = okhttp3.Request.Builder().url(url).build()
+            val resp = okhttp3.OkHttpClient().newCall(req).execute()
+            val tmp = File(cacheDir, "bot_voice_${System.currentTimeMillis()}.silk")
+            resp.body?.byteStream()?.use { it.copyTo(tmp.outputStream()) }
+            resp.close()
+            tmp
+        } catch (e: Exception) { null }
+    }
+
+    /** 解析音频文件为 16kHz float（支持 wav；silk 需先转 wav） */
+    private fun decodeToFloat(file: File): Pair<FloatArray, Int>? {
+        return try {
+            val bytes = file.readBytes()
+            if (bytes.size < 44 || bytes[0] != 0x52.toByte()) return null
+            val sampleRate = java.nio.ByteBuffer.wrap(bytes, 24, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+            val channels = java.nio.ByteBuffer.wrap(bytes, 22, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt()
+            val dataOff = 44
+            val pcm = bytes.copyOfRange(dataOff, bytes.size)
+            val floatPcm = FloatArray(pcm.size / 2) { java.nio.ByteBuffer.wrap(pcm, it * 2, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short / 32768f }
+            val mono = if (channels == 1) floatPcm else FloatArray(floatPcm.size / 2) { (floatPcm[it * 2] + floatPcm[it * 2 + 1]) / 2f }
+            val sr16k = if (sampleRate == 16000) mono else {
+                val ratio = sampleRate.toDouble() / 16000
+                FloatArray((mono.size / ratio).toInt().coerceAtLeast(1)) { mono[(it * ratio).toInt().coerceIn(0, mono.size - 1)] }
+            }
+            sr16k to 16000
+        } catch (e: Exception) { null }
+    }
+
     private fun findLatestConverted(): File? {
         val dir = File("/sdcard/rvc")
         return dir.listFiles { f -> f.name.endsWith(".wav") }?.maxByOrNull { it.lastModified() }
@@ -508,5 +642,10 @@ class MainActivity : AppCompatActivity() {
         else { pendingAction = action; permLauncher.launch(Manifest.permission.RECORD_AUDIO) }
     }
 
-    override fun onDestroy() { super.onDestroy(); rvcRealtime.release() }
+    override fun onDestroy() {
+        super.onDestroy()
+        rvcRealtime.release()
+        try { botServer?.stop(1000) } catch (_: Exception) {}
+        botServer = null
+    }
 }

@@ -471,7 +471,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="NapCat HTTP 地址 (如 http://127.0.0.1:3000)">
+                android:hint="RVC WS 端口 (默认 2536)">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etBotUrl"
@@ -495,11 +495,34 @@
                     android:singleLine="true" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/botTargetGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipBotGroup"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="发到群聊" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipBotPrivate"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="发到QQ号" />
+            </com.google.android.material.chip.ChipGroup>
+
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="群号 (群聊)">
+                android:hint="目标群号或QQ号">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etBotGroup"
@@ -515,8 +538,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:enabled="false"
-                android:text="发送最新变声文件到QQ群" />
+                android:text="发送最新变声文件到目标" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRvcRealtime"
