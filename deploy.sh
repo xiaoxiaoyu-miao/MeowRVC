@@ -3,6 +3,7 @@
 # --- 配置区域 ---
 WORK_DIR="$HOME/rvcqq"
 EXTRACT_DIR="$WORK_DIR/extracted_files"
+CONFIG_DIR="$WORK_DIR/111111111111"  # 改为占位目录
 RAW_BASE="https://raw.githubusercontent.com/xiaoxiaoyu-miao/MeowRVC/napcat"
 
 echo "==> 1. 创建工作目录..."
@@ -61,17 +62,34 @@ cat > "$EXTRACT_DIR/Lagrange.OneBot.runtimeconfig.json" << 'EOF'
 }
 EOF
 
-echo "==> 7. 创建全局命令 'rvc'..."
+echo "==> 7. 创建配置目录（请替换为你的 QQ 号）..."
+mkdir -p "$CONFIG_DIR"
+echo "📌 请将你的配置文件放入: $CONFIG_DIR"
+echo "📌 需要以下文件: appsettings.json, device.json, keystore.json"
+echo "📌 数据库目录也请放到这里: lagrange-<你的QQ号>-db"
+
+echo "==> 8. 创建全局命令 'rvc'..."
 cat > "/data/data/com.termux/files/usr/bin/rvc" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# 请将 111111111111 替换为你的 QQ 号
 cd "$HOME/rvcqq/111111111111" && dotnet ../extracted_files/Lagrange.OneBot.dll
 EOF
 chmod +x "/data/data/com.termux/files/usr/bin/rvc"
 
 echo "============================================"
 echo "✅ 部署完成！"
-echo "📁 工作目录: $WORK_DIR"
-echo "📌 请将你的配置文件（appsettings.json, device.json, keystore.json）放入 $HOME/rvcqq/111111111111/"
-echo "📌 数据库目录也请放到 $HOME/rvcqq/111111111111/"
-echo "🚀 配置完成后，直接输入 'rvc' 启动机器人。"
+echo ""
+echo "📌 重要：请按以下步骤操作"
+echo "1. 将你的配置文件放入: $HOME/rvcqq/111111111111/"
+echo "   - appsettings.json"
+echo "   - device.json"
+echo "   - keystore.json"
+echo "   - lagrange-<你的QQ号>-db (数据库目录)"
+echo ""
+echo "2. 编辑全局命令，替换为你的 QQ 号:"
+echo "   nano /data/data/com.termux/files/usr/bin/rvc"
+echo "   将 111111111111 替换为你的实际 QQ 号"
+echo ""
+echo "3. 启动机器人:"
+echo "   rvc"
 echo "============================================"
