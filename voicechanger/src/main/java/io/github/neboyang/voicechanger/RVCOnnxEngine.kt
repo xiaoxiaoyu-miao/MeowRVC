@@ -112,7 +112,7 @@ class RVCOnnxEngine {
     var eqLevel: Int = 0
 
     /** 外放音量 0.0~1.0 */
-    var volume: Float = 0.8f
+    var volume: Float = 1.0f
 
     /** 当前推理后端 */
     var backendInfo: String = "未知"
@@ -165,18 +165,27 @@ class RVCOnnxEngine {
             // rmvpe (optional)
             val rmvpePath = File(modelDir, "rmvpe.onnx")
             if (rmvpePath.exists()) {
-                sessions["rmvpe"] = env.createSession(rmvpePath.absolutePath, opts)
-                Log.e("RVC", "Loaded rmvpe")
+                try {
+                    sessions["rmvpe"] = env.createSession(rmvpePath.absolutePath, opts)
+                    Log.e("RVC", "Loaded rmvpe")
+                } catch (e: Exception) {
+                    Log.e("RVC", "rmvpe.onnx load failed (optional, ignored): ${e.message}")
+                }
             } else {
-                Log.e("RVC", "rmvpe.onnx missing")
+                Log.e("RVC", "rmvpe.onnx missing (optional)")
             }
 
             // fcpe (optional, 轻量音高提取)
             val fcpePath = File(modelDir, "fcpe.onnx")
             if (fcpePath.exists()) {
-                sessions["fcpe"] = env.createSession(fcpePath.absolutePath, opts)
-                fcpePitchCompensation = 0  // FCPE cent 表与 RMVPE 不同，补偿 5 半音
-                Log.e("RVC", "Loaded fcpe, pitch compensation=$fcpePitchCompensation")
+                try {
+                    sessions["fcpe"] = env.createSession(fcpePath.absolutePath, opts)
+                    fcpePitchCompensation = 0  // FCPE cent 表与 RMVPE 不同，补偿 5 半音
+                    Log.e("RVC", "Loaded fcpe, pitch compensation=$fcpePitchCompensation")
+                } catch (e: Exception) {
+                    Log.e("RVC", "fcpe.onnx load failed (optional, ignored): ${e.message}")
+                    fcpePitchCompensation = 0
+                }
             } else {
                 fcpePitchCompensation = 0
                 Log.e("RVC", "fcpe.onnx missing, will use RMVPE or autocorrelation")

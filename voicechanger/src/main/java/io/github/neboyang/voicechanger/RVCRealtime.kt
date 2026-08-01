@@ -14,8 +14,13 @@ import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
 
 class RVCRealtime {
+    enum class RunMode { IDLE, REALTIME, VAD, RECORD_TO_FILE }
+
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning
+
+    private val _runMode = MutableStateFlow(RunMode.IDLE)
+    val runMode: StateFlow<RunMode> = _runMode
 
     val engine = RVCOnnxEngine()
     var f0UpKey: Int = 0
@@ -38,6 +43,11 @@ class RVCRealtime {
         if (!engine.isLoaded()) { onError?.invoke(java.lang.IllegalStateException("Model not loaded")); return }
         if (_isRunning.value) return
         _isRunning.value = true
+        _runMode.value = if (realtimeMode) RunMode.REALTIME else RunMode.VAD
+
+        // 通话模式：确保 VOICE_COMMUNICATION 录音源 + 免提扬声器路由真正生效
+        audioManager?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+        audioManager?.isSpeakerphoneOn = true
 
         loopThread = Thread({
             if (realtimeMode) realtimeLoop() else vadLoop()
@@ -51,9 +61,6 @@ class RVCRealtime {
         val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bs * 4)
         rec.startRecording()
         val buf = ShortArray(bs)
-        val rawLatency = latencyMs.coerceIn(500, 5000)
-        val chunkSize = sr * rawLatency / 1000
-        val overlapSize = if (engine.overlapDivisor <= 0) 0 else chunkSize / engine.overlapDivisor
         val ringBuf = ArrayBlockingQueue<FloatArray>(12)
 
         // AudioTrack 缓冲区增大到 8 倍最小缓冲
@@ -66,10 +73,13 @@ class RVCRealtime {
             .build()
         track.play()
 
-        // 录音线程
+        // 录音线程（chunkSize/overlap 每次迭代按最新 latency/overlap 计算，拖动条即时生效）
         val recThread = Thread({
             var prevOverlap = FloatArray(0)
             while (_isRunning.value) {
+                val rawLatency = latencyMs.coerceIn(80, 5000)
+                val chunkSize = sr * rawLatency / 1000
+                val overlapSize = if (engine.overlapDivisor <= 0) 0 else chunkSize / engine.overlapDivisor
                 val chunk = FloatArray(chunkSize)
                 var idx = 0
                 for (s in prevOverlap) chunk[idx++] = s
@@ -111,14 +121,13 @@ class RVCRealtime {
                 if (res != null && res.isNotEmpty()) {
                     val outLen = (res.size.toDouble() * 48000 / engine.targetSr).toInt()
                     val outShort = ShortArray(outLen)
-                    val vol = engine.volume.coerceIn(0f, 1f)
 
                     for (i in 0 until outLen) {
                         val pos = (i.toDouble() * res.size) / outLen
                         val si = pos.toInt().coerceIn(0, res.size - 2)
                         val frac = (pos - si).toFloat()
                         val s = res[si] * (1f - frac) + res[si + 1] * frac
-                        val s32 = ((s * vol) * 32768f).toInt()
+                        val s32 = (s * 32768f).toInt()
                         outShort[i] = s32.coerceIn(-32768, 32767).toShort()
                     }
 
@@ -152,7 +161,7 @@ class RVCRealtime {
                     }
                 } else {
                     // 推理失败，写入静音防止断流
-                    val silent = ShortArray(chunkSize)
+                    val silent = ShortArray(chunk.size)
                     track.write(silent, 0, silent.size, AudioTrack.WRITE_NON_BLOCKING)
                 }
             } catch (e: Exception) {
@@ -194,7 +203,8 @@ class RVCRealtime {
                 }
                 if (pos == -1) break
             }
-            if (!_isRunning.value) break
+            // 停止时若已收集到音频，也要处理完这一段再退出
+            if (list.isEmpty() && !_isRunning.value) break
             try { rec.stop(); rec.release() } catch (_: Exception) {}
             try {
                 val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
@@ -203,13 +213,13 @@ class RVCRealtime {
                 val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
                     val outLen = (res.size * 48 / 40).coerceAtMost(total)
-                    val outShort = ShortArray(outLen); val vol = engine.volume
+                    val outShort = ShortArray(outLen)
                     for (i in 0 until outLen) {
                         val pos = (i.toDouble() * res.size) / outLen
                         val si = pos.toInt().coerceIn(0, res.size - 2)
                         val frac = (pos - si).toFloat()
                         val s = res[si] * (1f - frac) + res[si + 1] * frac
-                        outShort[i] = ((s * vol) * 32768f).toInt().coerceIn(-32768, 32767).toShort()
+                        outShort[i] = (s * 32768f).toInt().coerceIn(-32768, 32767).toShort()
                     }
                     val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
                     for (i in 0 until fadeLen) {
@@ -236,6 +246,7 @@ class RVCRealtime {
         if (!engine.isLoaded()) { onError?.invoke(java.lang.IllegalStateException("Model not loaded")); return }
         if (_isRunning.value) return
         _isRunning.value = true
+        _runMode.value = RunMode.RECORD_TO_FILE
         loopThread = Thread({ recordToFileLoop(outFile) }, "rvc-record-file")
         loopThread!!.start()
     }
@@ -267,7 +278,8 @@ class RVCRealtime {
                 }
                 if (pos == -1) break
             }
-            if (!_isRunning.value) break
+            // 停止时若已收集到音频，也要处理完这一段再退出
+            if (list.isEmpty() && !_isRunning.value) break
             try { rec.stop(); rec.release() } catch (_: Exception) {}
             try {
                 val total = list.sumOf { it.size }; val fa = FloatArray(total); var o = 0
@@ -276,13 +288,13 @@ class RVCRealtime {
                 val res = engine.infer(inp, f0UpKey)
                 if (res != null && res.isNotEmpty()) {
                     val outLen = (res.size * 48 / 40).coerceAtMost(total)
-                    val outShort = ShortArray(outLen); val vol = engine.volume
+                    val outShort = ShortArray(outLen)
                     for (i in 0 until outLen) {
                         val pos = (i.toDouble() * res.size) / outLen
                         val si = pos.toInt().coerceIn(0, res.size - 2)
                         val frac = (pos - si).toFloat()
                         val s = res[si] * (1f - frac) + res[si + 1] * frac
-                        outShort[i] = ((s * vol) * 32768f).toInt().coerceIn(-32768, 32767).toShort()
+                        outShort[i] = (s * 32768f).toInt().coerceIn(-32768, 32767).toShort()
                     }
                     val fadeLen = minOf(prevTail.size, outShort.size, engine.crossfadeSamples)
                     for (i in 0 until fadeLen) {
@@ -318,14 +330,21 @@ class RVCRealtime {
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
             .setBufferSizeInBytes(playBuf * 48).build()
         if (track.state == AudioTrack.STATE_INITIALIZED) {
-            track.play(); track.write(data, 0, data.size); track.stop(); track.release()
+            track.play()
+            track.write(data, 0, data.size, AudioTrack.WRITE_BLOCKING)
+            val playMs = (data.size * 1000L / sr)
+            try { Thread.sleep(playMs) } catch (_: InterruptedException) {}
+            track.stop(); track.release()
         }
         audioManager?.isSpeakerphoneOn = false
     }
 
     fun stop() {
         _isRunning.value = false
+        _runMode.value = RunMode.IDLE
         loopThread?.join(5000); loopThread = null
+        audioManager?.isSpeakerphoneOn = false
+        audioManager?.mode = android.media.AudioManager.MODE_NORMAL
     }
     fun release() { stop(); engine.unload() }
 }

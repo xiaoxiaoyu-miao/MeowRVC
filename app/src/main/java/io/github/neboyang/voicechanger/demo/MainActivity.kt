@@ -436,8 +436,10 @@ class MainActivity : AppCompatActivity() {
 
         btnRvcRealtime.setOnClickListener {
             if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            if (rvcRealtime.isRunning.value) rvcRealtime.stop()
-            else {
+            if (rvcRealtime.runMode.value == io.github.neboyang.voicechanger.RVCRealtime.RunMode.REALTIME ||
+                rvcRealtime.runMode.value == io.github.neboyang.voicechanger.RVCRealtime.RunMode.VAD) {
+                rvcRealtime.stop()
+            } else {
                 rvcRealtime.audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
                 rvcRealtime.onError = { t -> runOnUiThread { Toast.makeText(this, "错误: ${t.message}", Toast.LENGTH_LONG).show() } }
                 withRecordPermission { rvcRealtime.start() }
@@ -447,7 +449,7 @@ class MainActivity : AppCompatActivity() {
         // 录音 → 变声 → 保存文件（不外放）
         btnRecordToFile.setOnClickListener {
             if (currentModelDir == null) { Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            if (rvcRealtime.isRunning.value) {
+            if (rvcRealtime.runMode.value == io.github.neboyang.voicechanger.RVCRealtime.RunMode.RECORD_TO_FILE) {
                 rvcRealtime.stop()
                 Toast.makeText(this, "已停止，文件保存中…", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -466,18 +468,41 @@ class MainActivity : AppCompatActivity() {
         }
 
         val modeSwitch = findViewById<com.google.android.material.chip.ChipGroup>(R.id.modeSwitch)
-        modeSwitch.setOnCheckedStateChangeListener { group, _ ->
-            rvcRealtime.realtimeMode = group.checkedChipId == R.id.modeRealtime
+        fun applyMode() {
+            val realtime = modeSwitch.checkedChipId == R.id.modeRealtime
+            rvcRealtime.realtimeMode = realtime
+            // 实时模式不需要"录音不外放"
+            btnRecordToFile.visibility = if (realtime) android.view.View.GONE else android.view.View.VISIBLE
         }
+        modeSwitch.setOnCheckedStateChangeListener { _, _ ->
+            applyMode()
+        }
+        applyMode()
 
         btnRvcRealtime.text = "开始"
 
         lifecycleScope.launch {
-            rvcRealtime.isRunning.collect { running ->
-                val mode = if (rvcRealtime.realtimeMode) "实时" else "录音"
-                btnRvcRealtime.text = if (running) "${mode}中…停止" else "开始${mode}变声"
-                btnRecordToFile.text = if (running) "录音中…点击停止保存" else "录音变声并保存文件（不外放）"
-                tvStatus.text = if (running) "${mode}变声运行中" else "就绪"
+            rvcRealtime.runMode.collect { mode ->
+                when (mode) {
+                    io.github.neboyang.voicechanger.RVCRealtime.RunMode.REALTIME -> {
+                        btnRvcRealtime.text = "实时变声中…停止"
+                        tvStatus.text = "实时变声运行中"
+                    }
+                    io.github.neboyang.voicechanger.RVCRealtime.RunMode.VAD -> {
+                        btnRvcRealtime.text = "录音变声中…停止"
+                        tvStatus.text = "录音变声运行中"
+                    }
+                    io.github.neboyang.voicechanger.RVCRealtime.RunMode.RECORD_TO_FILE -> {
+                        btnRecordToFile.text = "录音中…点击停止保存"
+                        tvStatus.text = "录音保存运行中"
+                    }
+                    io.github.neboyang.voicechanger.RVCRealtime.RunMode.IDLE -> {
+                        val realtime = rvcRealtime.realtimeMode
+                        btnRvcRealtime.text = if (realtime) "开始实时变声" else "开始录音变声"
+                        btnRecordToFile.text = "录音变声并保存文件（不外放）"
+                        tvStatus.text = "就绪"
+                    }
+                }
             }
         }
 
